@@ -141,7 +141,7 @@ The GitHub Actions workflow .github/workflows/build-portable-windows.yml is a ma
 
 ### GitHub Release publishing
 
-A tag matching `gdng-v<version>` triggers the dedicated `gdng-release` CircleCI workflow. It builds Windows x64 (NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP) and a universal macOS build (DMG and ZIP). The release is not published until native Core checks, WebAssembly checks, the Linux CLI HTML5 export smoke test and the packaged-editor visual test have all passed.
+A tag matching `gdng-v<version>` triggers the dedicated `gdng-release` CircleCI workflow. It builds Windows x64 (NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP) and a universal macOS build (DMG and ZIP). The release is not published until native Core checks, WebAssembly checks, the Linux CLI HTML5 export smoke test, the complete Storybook visual suite and the packaged-editor visual test have all passed.
 
 Platform jobs persist their output into the CircleCI workspace. The final `publish-gdng-release` job checks that every expected artifact exists, writes `gdng-release-metadata.json` and `SHA256SUMS.txt`, uploads the files to a GitHub draft release, and publishes it only after all uploads succeed. A failed upload leaves the release as a draft so it cannot be mistaken for a complete build. A published release is never overwritten.
 

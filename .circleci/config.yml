@@ -1100,6 +1100,19 @@ workflows:
           requires:
             - build-linux
           filters: *gdng-release-tag-filter
+      - build-storybook-for-visual-tests:
+          name: release-visual-tests-storybook-build-all
+          scope: 'all'
+          requires:
+            - build-gdevelop_js-wasm-only
+          filters: *gdng-release-tag-filter
+      - run-visual-monkey-tests-storybook-linux:
+          name: release-visual-tests-storybook-all
+          scope: 'all'
+          parallelism: << pipeline.parameters.all-visual-tests-parallelism >>
+          requires:
+            - release-visual-tests-storybook-build-all
+          filters: *gdng-release-tag-filter
       - publish-gdng-release:
           requires:
             - verify-gdng-ci
@@ -1110,4 +1123,6 @@ workflows:
             - build-gdevelop_js-debug-sanitizers-and-extra-checks
             - release-cli-html5-export-linux
             - release-visual-monkey-tests-editor-linux
+            - release-visual-tests-storybook-build-all
+            - release-visual-tests-storybook-all
           filters: *gdng-release-tag-filter

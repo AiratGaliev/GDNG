@@ -155,7 +155,19 @@ const publisherJob = extractJob(jobs, 'publish-gdng-release');
 assert.match(publisherJob, /attach_workspace:/);
 assert.match(publisherJob, /node scripts\/publish-gdng-release\.cjs/);
 
-const releaseWorkflow = workflows.slice(workflows.indexOf('  gdng-release:'));
+const releaseWorkflow = extractWorkflow(workflows, 'gdng-release');
+const publisherWorkflowJob = releaseWorkflow.slice(
+  releaseWorkflow.indexOf('      - publish-gdng-release:')
+);
+for (const dependency of [
+  'release-visual-tests-storybook-build-all',
+  'release-visual-tests-storybook-all',
+]) {
+  assert.ok(
+    publisherWorkflowJob.includes('            - ' + dependency),
+    'Release publisher must wait for ' + dependency
+  );
+}
 assert.ok(releaseWorkflow.includes('ignore: /.*/'));
 assert.ok(
   releaseWorkflow.includes('only: /^gdng-v[0-9]+\\.[0-9]+\\.[0-9]+$/'),
@@ -174,6 +186,8 @@ for (const requiredJob of [
   'build-gdevelop_js-debug-sanitizers-and-extra-checks',
   'release-cli-html5-export-linux',
   'release-visual-monkey-tests-editor-linux',
+  'release-visual-tests-storybook-build-all',
+  'release-visual-tests-storybook-all',
   'publish-gdng-release',
 ]) {
   assert.ok(
