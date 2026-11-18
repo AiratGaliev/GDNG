@@ -443,7 +443,7 @@ jobs:
           mkdir -p cli-html5-export-deps
           cd cli-html5-export-deps
           npm init -y
-          npm install --no-audit --no-fund axios@^0.18.1 minimist@^1.2.5 shelljs@^0.8.4 adm-zip@^0.5.10
+          npm install --no-audit --no-fund axios@^0.18.1 https-proxy-agent@^5.0.1 minimist@^1.2.5 shelljs@^0.8.4 adm-zip@^0.5.10
       - name: Export example game with the locally built GDNG binary
         shell: bash
         run: |

@@ -243,6 +243,11 @@ const cliJob = extractIndentedSection(ghaJobs, 'cli-html5-export', 2);
 assert.match(cliJob, /needs: \[build-linux\]/);
 assert.match(cliJob, /--zipPath=/);
 assert.match(cliJob, /xvfb-run/);
+assert.match(
+  cliJob,
+  /https-proxy-agent@\^5\.0\.1/,
+  'CLI smoke-test scratch dependencies must include https-proxy-agent, required at module load by DownloadLocalFile.'
+);
 
 const storybookJob = extractIndentedSection(ghaJobs, 'build-storybook', 2);
 assert.match(storybookJob, /name: gdng-exact-commit-wasm/);
