@@ -198,6 +198,11 @@ for (const [jobName, buildArg] of [
 const macosJob = extractIndentedSection(ghaJobs, 'build-macos', 2);
 assert.match(macosJob, /runs-on: macos-15-intel/);
 assert.doesNotMatch(macosJob, /runs-on: macos-14/);
+assert.doesNotMatch(
+  macosJob,
+  /python3 -m pip install/,
+  'macOS hosted runners use externally managed Homebrew Python; do not install setuptools with system pip.'
+);
 assert.match(releaseWorkflow, /^permissions:\s*\n  contents: read/m);
 const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
 assert.match(windowsJob, /needs: \[verify, build-wasm\]/);

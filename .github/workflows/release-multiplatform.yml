@@ -293,7 +293,6 @@ jobs:
           set -euo pipefail
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
-          python3 -m pip install --upgrade setuptools
           cd GDevelop.js
           npm install --no-audit --no-fund
           cd ..
