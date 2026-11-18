@@ -36,6 +36,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+      - name: Install the official CircleCI CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -1sLf 'https://packages.circleci.com/public/setup.deb.sh' | sudo -E bash
+          sudo apt-get update
+          sudo apt-get install -y circleci
+      - name: Validate the upstream-derived CircleCI configuration
+        run: circleci config validate .circleci/config.yml
       - uses: actions/download-artifact@v7
         with:
           name: gdng-exact-commit-wasm
