@@ -181,7 +181,11 @@ assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
 assert.match(ghaTriggers, /workflow_dispatch:/);
 
 const ghaJobs = extractTopLevelSection(releaseWorkflow, 'jobs');
-assert.match(ghaJobs, /name: Validate the upstream-derived CircleCI configuration[\\s\\S]*?circleci config validate \.circleci\\/config\\.yml/);
+assert.ok(
+  ghaJobs.includes('name: Validate the upstream-derived CircleCI configuration') &&
+    ghaJobs.includes('run: circleci config validate .circleci/config.yml'),
+  'GitHub Actions must validate the upstream-derived CircleCI configuration.'
+);
 const requiredGhaJobs = [
   'verify',
   'build-wasm',
