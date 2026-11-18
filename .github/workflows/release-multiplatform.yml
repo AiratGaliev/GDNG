@@ -53,6 +53,9 @@ jobs:
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           python -m pip install --upgrade setuptools
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
       - name: Install IDE and GDJS dependencies
         working-directory: newIDE/app
         run: npm install --no-audit --no-fund
@@ -235,6 +238,9 @@ jobs:
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           python -m pip install --upgrade setuptools
+          cd GDevelop.js
+          npm install --no-audit --no-fund
+          cd ..
           export REQUIRES_EXACT_LIBGD_JS_VERSION=true
           cd newIDE/app
           npm install --no-audit --no-fund
@@ -288,6 +294,9 @@ jobs:
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           python3 -m pip install --upgrade setuptools
+          cd GDevelop.js
+          npm install --no-audit --no-fund
+          cd ..
           export REQUIRES_EXACT_LIBGD_JS_VERSION=true
           cd newIDE/app
           npm install --no-audit --no-fund
@@ -339,6 +348,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify GDNG local packaging policy
         run: node scripts/verify-gdng-local-policy.cjs
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        shell: pwsh
+        run: |
+          Push-Location GDevelop.js
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
       - name: Install editor dependencies and import exact-commit GDJS/Core
         shell: pwsh
         run: |
@@ -465,6 +484,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
       - name: Install editor dependencies
         working-directory: newIDE/app
         run: npm install --no-audit --no-fund

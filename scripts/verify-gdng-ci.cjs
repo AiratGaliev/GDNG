@@ -178,6 +178,12 @@ assert.match(verifyJob, /node scripts\/verify-gdng-ci\.cjs/);
 assert.match(verifyJob, /react-app-rewired test/);
 assert.match(verifyJob, /flow status/);
 assert.match(verifyJob, /npm run check-types/);
+assert.ok(
+  verifyJob.indexOf('working-directory: GDevelop.js') >= 0 &&
+    verifyJob.indexOf('working-directory: GDevelop.js') <
+      verifyJob.indexOf('working-directory: newIDE/app'),
+  'Verification must install GDevelop.js tooling before newIDE/app postinstall imports the local Core bindings.'
+);
 
 for (const [jobName, buildArg] of [
   ['build-linux', '--linux'],
@@ -199,6 +205,25 @@ assert.match(windowsJob, /name: gdng-exact-commit-wasm/);
 assert.match(windowsJob, /--win nsis --publish=never/);
 assert.match(windowsJob, /--skip-app-build --win zip --publish=never/);
 assert.match(windowsJob, /name: gdng-release-windows/);
+assert.ok(
+  windowsJob.indexOf('Push-Location GDevelop.js') >= 0 &&
+    windowsJob.indexOf('Push-Location GDevelop.js') <
+      windowsJob.indexOf('Push-Location newIDE/app'),
+  'Windows must install GDevelop.js tooling before newIDE/app postinstall.'
+);
+const linuxJob = extractIndentedSection(ghaJobs, 'build-linux', 2);
+assert.ok(
+  linuxJob.indexOf('cd GDevelop.js') >= 0 &&
+    linuxJob.indexOf('cd GDevelop.js') <
+      linuxJob.indexOf('cd newIDE/app'),
+  'Linux must install GDevelop.js tooling before newIDE/app postinstall.'
+);
+assert.ok(
+  macosJob.indexOf('cd GDevelop.js') >= 0 &&
+    macosJob.indexOf('cd GDevelop.js') <
+      macosJob.indexOf('cd newIDE/app'),
+  'macOS must install GDevelop.js tooling before newIDE/app postinstall.'
+);
 
 for (const [jobName, requiredArg] of [
   ['build-linux', '--linux'],
@@ -217,6 +242,12 @@ assert.match(cliJob, /xvfb-run/);
 const storybookJob = extractIndentedSection(ghaJobs, 'build-storybook', 2);
 assert.match(storybookJob, /name: gdng-exact-commit-wasm/);
 assert.match(storybookJob, /npm run build-storybook/);
+assert.ok(
+  storybookJob.indexOf('working-directory: GDevelop.js') >= 0 &&
+    storybookJob.indexOf('working-directory: GDevelop.js') <
+      storybookJob.indexOf('working-directory: newIDE/app'),
+  'Storybook must install GDevelop.js tooling before newIDE/app postinstall.'
+);
 
 const storybookVisualJob = extractIndentedSection(
   ghaJobs,
