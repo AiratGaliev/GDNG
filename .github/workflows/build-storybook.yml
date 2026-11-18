@@ -23,7 +23,8 @@ on:
 
 jobs:
   build-storybook:
-    if: github.event_name != 'pull_request'
+    # Publishing requires AWS credentials owned by the official GDevelop repository.
+    if: github.repository == '4ian/GDevelop' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,7 +92,8 @@ jobs:
 
   comment-storybook-links:
     # Storybooks are only published for branches of this repository.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Pull request comments link to Storybooks published by the official repository only.
+    if: github.repository == '4ian/GDevelop' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
