@@ -21,8 +21,10 @@ concurrency:
 jobs:
   test:
     name: IDE unit tests and Flow
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - name: Checkout source
@@ -45,7 +47,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "NODE_OPTIONS=--max-old-space-size=8192" >> "$GITHUB_ENV"
 
           # GDevelop declares a public GitHub dependency using the SSH shorthand.
           # The runner has no personal SSH key, so rewrite public GitHub SSH URLs to HTTPS.
@@ -93,6 +94,8 @@ jobs:
     needs: test
     runs-on: windows-latest
     timeout-minutes: 120
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - name: Checkout source
@@ -114,9 +117,6 @@ jobs:
       - name: Configure build environment
         shell: pwsh
         run: |
-          $env:NODE_OPTIONS = '--max-old-space-size=8192'
-          "NODE_OPTIONS=$env:NODE_OPTIONS" | Out-File -FilePath $env:GITHUB_ENV -Append
-
           # GDevelop declares a public GitHub dependency using the SSH shorthand.
           # The runner has no personal SSH key, so rewrite public GitHub SSH URLs to HTTPS.
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
