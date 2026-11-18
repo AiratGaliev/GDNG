@@ -64,25 +64,6 @@ const config = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
   },
-  appx: {
-    publisherDisplayName: 'GDevelop game engine',
-    displayName: 'GDevelop',
-    publisher: 'CN=B13CB8D3-97AA-422C-A394-0EE51B9ACAD3',
-    identityName: 'GDevelopgameengine.GDevelop',
-    backgroundColor: '#524F9C',
-    languages: [
-      'EN-US',
-      'ZH-HANS',
-      'DE',
-      'IT',
-      'JA',
-      'PT-BR',
-      'RU',
-      'ES',
-      'FR',
-      'SL',
-    ],
-  },
   afterSign: 'scripts/electron-builder-after-sign.js',
   // The packaged app must only check GDNG releases, never upstream GDevelop.
   publish: [

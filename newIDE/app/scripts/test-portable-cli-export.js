@@ -35,7 +35,7 @@ const { retryIfFailed } = require('./lib/RetryIfFailed');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
-const branch = args['branch'] || 'master';
+const branch = args['branch'] || 'custom';
 const exampleSlug = args['example'] || '3d-platformer';
 const workDir = path.resolve(args['workDir'] || './.portable-cli-test');
 const artifactsDir = path.resolve(
@@ -47,8 +47,8 @@ const artifactsDir = path.resolve(
 const localZipPath = args['zipPath'] ? path.resolve(args['zipPath']) : null;
 
 const version = electronAppPackageJson.version;
-const pathToArtifacts = `https://gdevelop-releases.s3.amazonaws.com/${branch}/latest`;
-const portableZipName = `gdevelop-${version}.zip`;
+const pathToArtifacts = 'https://github.com/AiratGaliev/GDNG/releases/download/gdng-v' + version;
+const portableZipName = 'GDNG-' + version + '-linux-x64.zip';
 const portableZipUrl = `${pathToArtifacts}/${portableZipName}`;
 
 const EXAMPLES_REPO = 'https://github.com/GDevelopApp/GDevelop-examples.git';
@@ -190,7 +190,7 @@ const fail = msg => {
  * @returns {string|null}
  */
 function findExecutable(root) {
-  const candidates = ['gdevelop', 'GDevelop'];
+  const candidates = ['gdng', 'GDNG', 'gdevelop', 'GDevelop'];
   /** @type {string[]} */
   const stack = [root];
   while (stack.length) {

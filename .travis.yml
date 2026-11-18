@@ -11,7 +11,7 @@ compiler:
   - clang
 branches:
   only:
-    - master
+    - custom
 
 # Cache .npm folder for faster npm install
 cache:

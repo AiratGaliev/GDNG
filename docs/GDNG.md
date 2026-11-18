@@ -118,3 +118,23 @@ Do not force-push `custom`. If the merge fails, inspect and resolve the conflict
 ## License and attribution
 
 Keep upstream license files and copyright notices intact. The Core, game engine, IDE and extensions are distributed under the licenses stated in their respective directories. The name GDevelop and its logo remain the property identified in the upstream repository's trademark notice. GDNG's own name does not imply ownership of GDevelop trademarks.
+
+## CI and platform builds
+
+The primary multi-platform pipeline remains the upstream CircleCI configuration at .circleci/config.yml. It retains the upstream jobs for WebAssembly, native Core sanitizers, IDE/GDJS checks and desktop packaging:
+
+- macOS builds the engine and editor on a macOS runner.
+- Linux and Windows consume the exact libGD.js/libGD.wasm build from build-gdevelop_js-wasm-only through a CircleCI workspace.
+- Linux produces the configured AppImage, DEB and portable ZIP targets.
+- Windows produces an unsigned NSIS installer and portable ZIP.
+- CLI HTML5 export and packaged-editor visual tests use the Linux ZIP produced in the same CircleCI workflow.
+
+The fork-specific changes are intentionally limited: the upstream AWS S3 deployment steps and AWS CLI orb are removed; the current WebAssembly build is passed between jobs by CircleCI workspace instead. The eSigner certificate bootstrap, code-signing commands, Microsoft Store AppX build and obsolete AppVeyor trigger are removed. No upstream AWS credentials, signing secrets or Microsoft Store publisher identity are required. Unsigned packages are uploaded as CircleCI artifacts.
+
+CircleCI branch filters use custom as the fork primary branch. The scheduled end-to-end workflow builds a fresh Linux package before running CLI export and packaged-editor tests; it does not attempt to download an upstream master/latest artifact. Branch-scoped visual checks retain the upstream Storybook suite. The packaged-editor suite runs only when a local GDNG Linux package is available.
+
+.semaphore/semaphore.yml remains the fast validation pipeline (Flow, TypeScript, formatting, lint and tests). It intentionally does not build the C++/WebAssembly engine, so its results are preliminary; the CircleCI build is the authoritative full-engine and packaging validation. .travis.yml retains the upstream full-test configuration on the custom branch. appveyor.yml is retained only as the deprecated upstream reference; CircleCI owns the Windows build.
+
+The GitHub Actions workflow .github/workflows/build-portable-windows.yml is a manually dispatched Windows fallback used by upstream-release automation. It is not the primary release matrix. The multi-platform artifact set is produced by CircleCI.
+
+**Signing status:** the CI artifacts are unsigned. Windows SmartScreen and macOS Gatekeeper may display warnings. Signing/notarization can be added later with GDNG-owned certificates and secrets; upstream credentials must never be reused.

@@ -22,7 +22,7 @@ const wait = durationInMs =>
  * `name` field of the package.json by electron-builder).
  */
 const findExecutable = root => {
-  const candidates = ['gdevelop', 'GDevelop'];
+  const candidates = ['gdng', 'GDNG', 'gdevelop', 'GDevelop'];
   const stack = [root];
   while (stack.length) {
     const directory = stack.pop();

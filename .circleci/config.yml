@@ -1,9 +1,6 @@
-# CircleCI configuration to build GDevelop app running
-# on the Electron runtime (newIDE/electron-app) for macOS and Linux.
-# For Windows, see the appveyor.yml file.
-
-# This also builds GDevelop.js and store it on a S3 so it can be used to run
-# GDevelop without building it from scratch.
+# CircleCI configuration for GDNG desktop builds (Windows, Linux and macOS).
+# The build graph follows upstream GDevelop, with fork-specific artifact flow.
+# GDevelop.js is built once and shared with Linux/Windows using a CircleCI workspace.
 
 # Note that these CircleCI builds/tests are not launched on Pull Requests from forks,
 # to avoid sharing secrets.
@@ -25,7 +22,6 @@ parameters:
     type: integer
     default: 2
 orbs:
-  aws-cli: circleci/aws-cli@2.0.6
   macos: circleci/macos@2.5.1 # For Rosetta (see below)
   node: circleci/node@7.1.0 # For a recent npm version (see below)
   win: circleci/windows@5.1.0
@@ -46,10 +42,10 @@ commands:
           name: Stop here if no test is related to the changes
           command: |
             if [ "<< parameters.scope >>" != "changed" ]; then exit 0; fi
-            git fetch --depth=50 origin master
+            git fetch --depth=50 origin custom
             cd newIDE/visual-tests
             PUPPETEER_SKIP_DOWNLOAD=1 npm install --no-audit --no-fund --silent
-            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/master)" ]; then
+            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/custom)" ]; then
               echo "No visual monkey test of the << parameters.suite >> suite is related to these changes."
               circleci-agent step halt
             fi
@@ -61,7 +57,7 @@ jobs:
     resource_class: m4pro.medium
     steps:
       - checkout
-      # Install Rosetta for AWS CLI and disable TSO to speed up S3 uploads (https://support.circleci.com/hc/en-us/articles/19334402064027-Troubleshooting-slow-uploads-to-S3-for-jobs-using-an-m1-macOS-resource-class)
+      # Install Rosetta so the universal Electron build can include Intel binaries (https://support.circleci.com/hc/en-us/articles/19334402064027-Troubleshooting-slow-uploads-to-S3-for-jobs-using-an-m1-macOS-resource-class)
       - macos/install-rosetta
       # - run: sudo sysctl net.inet.tcp.tso=0
 
@@ -70,14 +66,10 @@ jobs:
       - node/install:
           node-version: "20.14.0"
 
-      # System dependencies (for Emscripten and upload)
+      # System dependencies (for Emscripten)
       - run:
           name: Install dependencies for Emscripten
           command: brew install cmake
-
-      - run:
-          name: Install dependencies for AWS S3 upload
-          command: curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg" && sudo installer -pkg AWSCLIV2.pkg -target /
 
       - run:
           name: Install Emscripten (for GDevelop.js)
@@ -121,42 +113,11 @@ jobs:
 
       - run:
           name: Clean dist folder to keep only installers/binaries.
-          command: rm -rf "newIDE/electron-app/dist/mac-universal/GDevelop 5.app"
+          command: rm -rf "newIDE/electron-app/dist/mac-universal/GDNG.app"
 
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: |
-            export PATH=~/.local/bin:$PATH
-            for i in 1 2 3 4 5 6 7; do
-              aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/ && break
-              echo "Retry $i failed... retrying in 10 seconds"
-              sleep 10
-            done
-            if [ $i -eq 7 ]; then
-              echo "All retries for deployment failed!" >&2
-              exit 1
-            fi
-
-      - run:
-          name: Deploy to S3 (latest)
-          command: |
-            export PATH=~/.local/bin:$PATH
-            for i in 1 2 3 4 5 6 7; do
-              aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/latest/ && break
-              echo "Retry $i failed... retrying in 10 seconds"
-              sleep 10
-            done
-            if [ $i -eq 7 ]; then
-              echo "All retries for deployment failed!" >&2
-              exit 1
-            fi
-
-  # Build the app for Linux (using a pre-built GDevelop.js library).
   build-linux:
     # CircleCI docker workers are failing if they don't have enough memory (no swap)
     resource_class: xlarge
@@ -167,7 +128,8 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
+      - attach_workspace:
+          at: .
 
       # System dependencies (for Electron Builder)
       - run:
@@ -217,7 +179,7 @@ jobs:
           name: Stage portable zip for downstream cli-html5-export-linux job
           command: |
             mkdir -p build-linux-workspace
-            for f in newIDE/electron-app/dist/gdevelop-*.zip; do
+            for f in newIDE/electron-app/dist/GDNG-*.zip; do
               case "$f" in
                 *arm64*) ;;
                 *) cp "$f" build-linux-workspace/ ;;
@@ -228,16 +190,6 @@ jobs:
           root: build-linux-workspace
           paths:
             - .
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/
-      - run:
-          name: Deploy to S3 (latest)
-          command: aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/latest/
-
-  # Build the WebAssembly library only (so that it's cached on a S3 and easy to re-use).
   build-gdevelop_js-wasm-only:
     resource_class: medium+ # Compilation time decrease linearly with the number of CPUs, but not linking (so "large" does not speedup total build time).
     docker:
@@ -247,7 +199,6 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
 
       # System dependencies (for Emscripten)
       - run:
@@ -309,16 +260,10 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: Binaries/embuild/GDevelop.js
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/
-      - run:
-          name: Deploy to S3 (latest)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/latest/
-
-  # Build the WebAssembly library with clang-tidy and memory sanitizers.
+      - persist_to_workspace:
+          root: .
+          paths:
+            - Binaries/embuild/GDevelop.js
   build-gdevelop_js-debug-sanitizers-and-extra-checks:
     resource_class: xlarge # Total time decrease linearly with the number of CPUs.
     docker:
@@ -328,7 +273,6 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
 
       # System dependencies (for Emscripten)
       - run:
@@ -376,17 +320,6 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: Binaries/embuild/GDevelop.js
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/variant/debug-sanitizers/commit/$(git rev-parse HEAD)/
-
-  # Build and run the native GDCore_tests with AddressSanitizer + UBSan, to
-  # catch heap-use-after-free, buffer overflows and undefined behaviour that
-  # only sometimes manifest as flaky segfaults. 
-  # The Emscripten build has its own sanitizer job:
-  # build-gdevelop_js-debug-sanitizers-and-extra-checks.
   build-gdcore-tests-sanitizers:
     resource_class: medium+
     docker:
@@ -450,23 +383,6 @@ jobs:
             export UBSAN_OPTIONS=print_stacktrace=1
             Core/GDCore_tests
 
-  # Trigger AppVeyor build, which also does a Windows build (keep it for redundancy).
-  trigger-appveyor-windows-build:
-    docker:
-      - image: cimg/base:current
-    steps:
-      - run:
-          name: Trigger AppVeyor Windows build
-          command: |
-            curl -H "Content-Type: application/json" \
-                 -H "Authorization: Bearer ${APPVEYOR_API_KEY}" \
-                 --data "{
-                   \"accountName\": \"4ian\",
-                   \"projectSlug\": \"gdevelop\",
-                   \"branch\": \"${CIRCLE_BRANCH}\"
-                 }" \
-                 -X POST https://ci.appveyor.com/api/builds
-
   build-windows:
     executor:
       name: win/default
@@ -474,51 +390,8 @@ jobs:
     working_directory: /home/circleci/project
     steps:
       - checkout
-      - run:
-          # See https://www.ssl.com/how-to/how-to-integrate-esigner-cka-with-ci-cd-tools-for-automated-code-signing/
-          #
-          # This is necessary because of "signing to be FIPS-140 compliant". See
-          # https://github.com/electron-userland/electron-builder/issues/6158
-          #
-          # Make sure to DISABLE "malware blocker" in SSL.com to avoid errors like:
-          # Error information: "Error: SignerSign() failed." (-2146893821/0x80090003)
-          name: Download and Unzip eSignerCKA Setup
-          command: |
-
-            Invoke-WebRequest -OutFile eSigner_CKA_1.0.3.zip "https://www.ssl.com/download/ssl-com-esigner-cka-1-0-3"
-
-            Expand-Archive -Force eSigner_CKA_1.0.3.zip
-
-            Remove-Item eSigner_CKA_1.0.3.zip
-
-            Move-Item -Destination "eSigner_CKA_1.0.3.exe" -Path "eSigner_CKA_*\*.exe"
-      - run:
-          name: Setup eSignerCKA in Silent Mode
-          command: |
-
-            mkdir -p "/home/circleci/project/eSignerCKA"
-
-            ./eSigner_CKA_1.0.3.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /DIR="/home/circleci/project/eSignerCKA" | Out-Null
-      - run:
-          name: Config Account Information on eSignerCKA
-          command: |
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe config -mode product -user "$env:ESIGNER_USER_NAME" -pass "$env:ESIGNER_USER_PASSWORD" -totp "$env:ESIGNER_USER_TOTP" -key "/home/circleci/project/eSignerCKA/master.key" -r
-      - run:
-          name: Load Certificate into Windows Store
-          command: |
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe unload
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe load
-      - run:
-          name: Select Certificate From Windows Store and Sign Sample File with SignTool
-          command: |
-
-            $CodeSigningCert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-
-            echo Certificate: $CodeSigningCert
-
+      - attach_workspace:
+          at: .
       - restore_cache:
           name: Restore node_modules cache
           keys:
@@ -565,48 +438,12 @@ jobs:
             - GDJS/node_modules
 
       - run:
-          name: Build NSIS executable (with code signing)
+          name: Build unsigned NSIS installer
           command: |
             cd newIDE\electron-app
-
-            $CodeSigningCert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-
-            echo Certificate: $CodeSigningCert
-
-            # Use a custom signtool path because of the signtool.exe bundled withy electron-builder not working for some reason.
-            # Can also be found in versioned folders like "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22000.0/x86/signtool.exe".
-            # or "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x86\signtool.exe".
-
-            $Env:SIGNTOOL_PATH = "C:\Program Files (x86)\Windows Kits\10\App Certification Kit\signtool.exe"
-
-            # Extract thumbprint and subject name of the certificate (will be passed to electron-builder).
-
-            $Env:GD_SIGNTOOL_THUMBPRINT = $CodeSigningCert.Thumbprint
-
-            $Env:GD_SIGNTOOL_SUBJECT_NAME = ($CodeSigningCert.Subject -replace ", ?", "`n" | ConvertFrom-StringData).CN
-
-            # Build the nsis installer (signed: electron-builder will use SignTool.exe with the certificate)
 
             node scripts/build.js --win nsis --publish=never
-
-            cd ..\..
-      - run:
-          name: Build AppX (without code signing)
-          # Don't sign the appx (it will be signed by the Microsoft Store).
-          command: |
-            cd newIDE\electron-app
-
-            # Build the appx (not signed). Ensure all variables used for code signing are empty.
-
-            $Env:GD_SIGNTOOL_THUMBPRINT = ''
-
-            $Env:GD_SIGNTOOL_SUBJECT_NAME = ''
-
-            $Env:CSC_LINK = ''
-
-            $Env:CSC_KEY_PASSWORD = ''
-
-            node scripts/build.js --skip-app-build --win appx --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
             cd ..\..
       - run:
@@ -634,43 +471,17 @@ jobs:
           command: |
             rmdir /s /q newIDE\electron-app\dist\win-unpacked
 
-      - run:
-          name: Install AWS CLI
-          command: |
-            # Install the CLI for the current user
-
-            pip install --quiet --upgrade --user awscli
-
-            # Add the user-Scripts dir to PATH for this step and the next.
-
-            $binDir = (python -m site --user-base) + "\Scripts"
-            $Env:Path += ";$binDir"
-
-            # Sanity check:
-            aws --version
-
-      # Upload artifacts (S3)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: |
-            aws s3 sync newIDE\electron-app\dist "s3://gdevelop-releases/$Env:CIRCLE_BRANCH/commit/$Env:CIRCLE_SHA1/"
-
-      - run:
-          name: Deploy to S3 (latest)
-          command: |
-            aws s3 sync newIDE\electron-app\dist "s3://gdevelop-releases/$Env:CIRCLE_BRANCH/latest/"
-
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
 
   # End-to-end test that runs the GDevelop CLI to export an example game
   # to HTML5, using either the portable Linux build just produced by
-  # build-linux (use-local-build=true) or the latest one downloaded from S3.
+  # build-linux (use-local-build=true) or a published GDNG GitHub Release.
   run-cli-html5-export-linux:
     parameters:
       use-local-build:
-        description: When true, attach the workspace produced by build-linux and use its portable zip instead of downloading the latest one from S3.
+        description: When true, attach the workspace produced by build-linux and use its portable zip.
         type: boolean
         default: false
     resource_class: medium
@@ -732,7 +543,7 @@ jobs:
           command: |
             export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdevelop-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/GDNG-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in build-linux workspace." >&2
                 exit 1
@@ -740,8 +551,8 @@ jobs:
               echo "Using locally built portable zip: $ZIP_PATH"
               EXTRA_ARGS="--zipPath=$ZIP_PATH"
             else
-              echo "No local build available; will download the latest portable zip from S3."
-              EXTRA_ARGS="--branch=master"
+              echo "No local build available; using the published GDNG release archive."
+              EXTRA_ARGS="--branch=custom"
             fi
             xvfb-run -a --server-args="-screen 0 1280x800x24" \
               node newIDE/app/scripts/test-portable-cli-export.js \
@@ -774,8 +585,12 @@ jobs:
 
     working_directory: ~/GDevelop
 
+    environment:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
     steps:
       - checkout
+      - attach_workspace:
+          at: .
 
       - halt-unless-a-visual-test-is-related-to-the-changes:
           scope: << parameters.scope >>
@@ -797,9 +612,9 @@ jobs:
           command: export NODE_OPTIONS="--max-old-space-size=7168" && cd newIDE/app && npm run build-storybook
 
       - persist_to_workspace:
-          root: newIDE/app
+          root: .
           paths:
-            - build-storybook
+            - newIDE/app/build-storybook
 
   run-visual-monkey-tests-storybook-linux:
     parameters:
@@ -826,7 +641,7 @@ jobs:
           suite: 'storybook'
 
       - attach_workspace:
-          at: newIDE/app
+          at: .
 
       # The tests run in the Chrome that `npm install` downloads for Puppeteer
       # (see newIDE/visual-tests/package.json), which needs these libraries.
@@ -870,7 +685,7 @@ jobs:
           command: |
             cd newIDE/visual-tests
             if [ "<< parameters.scope >>" = "changed" ]; then
-              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/master > /tmp/tests.txt
+              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/custom > /tmp/tests.txt
             else
               node run.js --suite=storybook --list-names > /tmp/tests.txt
             fi
@@ -986,7 +801,7 @@ jobs:
             set +e
             cd newIDE/visual-tests
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdevelop-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/GDNG-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in the build-linux workspace." >&2
                 exit 1
@@ -994,11 +809,11 @@ jobs:
               echo "Using the locally built portable zip: $ZIP_PATH"
               EXTRA_ARGS="--gdevelop-zip=$ZIP_PATH"
             else
-              echo "No local build available; the latest portable zip of master will be downloaded."
-              EXTRA_ARGS="--gdevelop-branch=master"
+              echo "A local GDNG package is required for this visual test." >&2
+              exit 1
             fi
             if [ "<< parameters.scope >>" = "changed" ]; then
-              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/master"
+              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/custom"
             fi
             xvfb-run -a --server-args="-screen 0 1500x1000x24" \
               node run.js --suite=editor $EXTRA_ARGS \
@@ -1024,7 +839,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
   tests:
@@ -1042,7 +857,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
       - build-linux:
@@ -1051,7 +866,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
       # Right after build-linux, run the CLI HTML5 export against the
@@ -1064,7 +879,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
       # Right after build-linux, run the visual monkey tests of the real
@@ -1077,7 +892,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
       - build-windows:
@@ -1086,22 +901,12 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
                 - stable
                 - /experimental-build.*/
-      # Disabled as Windows builds are now done by CircleCI.
-      # - trigger-appveyor-windows-build:
-      #     requires:
-      #       - build-gdevelop_js-wasm-only
-      #     filters:
-      #       branches:
-      #         only:
-      #           - master
-      #           - stable
-      #           - /experimental-build.*/
 
   # Daily end-to-end tests running against the latest portable build uploaded
-  # to S3 for master: the CLI HTML5 export, and the visual monkey tests
+  # using the locally built GDNG Linux package: the CLI HTML5 export, and the visual monkey tests
   # manipulating the editor. Runs every day at 16:00 UTC (4pm UTC).
   daily-end-to-end-tests:
     triggers:
@@ -1110,69 +915,66 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - custom
     jobs:
-      - run-cli-html5-export-linux
-      - run-visual-monkey-tests-editor-linux
+      - build-gdevelop_js-wasm-only
+      - build-linux:
+          requires:
+            - build-gdevelop_js-wasm-only
+      - run-cli-html5-export-linux:
+          use-local-build: true
+          requires:
+            - build-linux
+      - run-visual-monkey-tests-editor-linux:
+          use-local-build: true
+          requires:
+            - build-linux
 
   # On `master`/`stable` (or when explicitly asked for): manipulate the editors
   # in a real browser and check that nothing is broken, with every test.
   # (`master`, `stable` and the experimental builds also run the editor suite
-  # against the build build-linux just produced, in the main workflow.)
+
   all-visual-tests:
     when:
       or:
-        - equal: [master, << pipeline.git.branch >>]
+        - equal: [custom, << pipeline.git.branch >>]
         - equal: [stable, << pipeline.git.branch >>]
         - << pipeline.parameters.run-all-visual-tests >>
     jobs:
+      - build-gdevelop_js-wasm-only
       - build-storybook-for-visual-tests:
           name: visual-tests-storybook-build-all
           scope: 'all'
+          requires:
+            - build-gdevelop_js-wasm-only
       - run-visual-monkey-tests-storybook-linux:
           name: visual-tests-storybook-all
           scope: 'all'
           parallelism: << pipeline.parameters.all-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-all
-      # On a branch forced with `run-all-visual-tests`: every test of the
-      # editor suite too, against the latest portable build of `master`.
-      - run-visual-monkey-tests-editor-linux:
-          name: visual-tests-editor-all
-          scope: 'all'
-          filters:
-            branches:
-              ignore:
-                - master
-                - stable
-                - /experimental-build.*/
-
   # On a branch / Pull Request: only run the tests related to what it changes
   # (nothing at all when it changes nothing related to them). The editor suite
   # runs against the latest portable build of `master` (a branch builds no
-  # app), so it exercises the tests of the branch, not its changes to the app.
+  # suite does not itself build a packaged desktop application).
   changed-visual-tests:
     when:
       and:
         - not:
-            equal: [master, << pipeline.git.branch >>]
+            equal: [custom, << pipeline.git.branch >>]
         - not:
             equal: [stable, << pipeline.git.branch >>]
         - not: << pipeline.parameters.run-all-visual-tests >>
     jobs:
+      - build-gdevelop_js-wasm-only
       - build-storybook-for-visual-tests:
           name: visual-tests-storybook-build-changed
           scope: 'changed'
+          requires:
+            - build-gdevelop_js-wasm-only
       - run-visual-monkey-tests-storybook-linux:
           name: visual-tests-storybook-changed
           scope: 'changed'
           parallelism: << pipeline.parameters.changed-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-changed
-      - run-visual-monkey-tests-editor-linux:
-          name: visual-tests-editor-changed
-          scope: 'changed'
-          filters:
-            branches:
-              ignore:
-                - /experimental-build.*/
