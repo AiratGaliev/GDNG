@@ -18,7 +18,7 @@
  *      exists) and zips it into the artifacts folder.
  *
  * Usage:
- *   node test-portable-cli-export.js [--branch=master] [--example=3d-platformer]
+ *   node test-portable-cli-export.js [--branch=custom] [--example=3d-platformer]
  *                                    [--zipPath=/path/to/gdevelop-X.Y.Z.zip]
  *                                    [--workDir=./.portable-cli-test]
  *                                    [--artifactsDir=./portable-cli-artifacts]
@@ -48,7 +48,7 @@ const localZipPath = args['zipPath'] ? path.resolve(args['zipPath']) : null;
 
 const version = electronAppPackageJson.version;
 const pathToArtifacts = 'https://github.com/AiratGaliev/GDNG/releases/download/gdng-v' + version;
-const portableZipName = 'GDNG-' + version + '-linux-x64.zip';
+const portableZipName = 'gdng-' + version + '.zip';
 const portableZipUrl = `${pathToArtifacts}/${portableZipName}`;
 
 const EXAMPLES_REPO = 'https://github.com/GDevelopApp/GDevelop-examples.git';

@@ -57,7 +57,7 @@ jobs:
     resource_class: m4pro.medium
     steps:
       - checkout
-      # Install Rosetta so the universal Electron build can include Intel binaries (https://support.circleci.com/hc/en-us/articles/19334402064027-Troubleshooting-slow-uploads-to-S3-for-jobs-using-an-m1-macOS-resource-class)
+      # Install Rosetta so the universal Electron build can include Intel binaries.
       - macos/install-rosetta
       # - run: sudo sysctl net.inet.tcp.tso=0
 
@@ -179,7 +179,7 @@ jobs:
           name: Stage portable zip for downstream cli-html5-export-linux job
           command: |
             mkdir -p build-linux-workspace
-            for f in newIDE/electron-app/dist/GDNG-*.zip; do
+            for f in newIDE/electron-app/dist/gdng-*.zip; do
               case "$f" in
                 *arm64*) ;;
                 *) cp "$f" build-linux-workspace/ ;;
@@ -543,7 +543,7 @@ jobs:
           command: |
             export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/GDNG-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdng-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in build-linux workspace." >&2
                 exit 1
@@ -730,14 +730,10 @@ jobs:
           name: Report whether the visual monkey tests passed
           command: exit "$(cat /tmp/visual-tests-exit-code)"
 
-  # Visual monkey tests, "editor" suite: smoke tests using a real, packaged
-  # version of the app (like run-cli-html5-export-linux does) opening a real
-  # example game.
-  #
-  # Without a local build (so on a branch), the tests run against the latest
-  # portable build of `master` on S3: they then exercise the tests of the
-  # branch, not its changes to the app itself - those are only tested by the
-  # jobs following build-linux, on the branches building the app.
+  # Visual monkey tests, "editor" suite: smoke tests using the portable GDNG
+  # Linux package created by build-linux, opening a real example game.
+  # This job is scheduled only with use-local-build=true; there is no
+  # upstream S3 or GDevelop master fallback in the fork.
   run-visual-monkey-tests-editor-linux:
     parameters:
       scope:
@@ -748,7 +744,7 @@ jobs:
         enum: ['all', 'changed']
         default: 'all'
       use-local-build:
-        description: When true, attach the workspace produced by build-linux and use its portable zip instead of downloading the latest one from S3.
+        description: Attach and test the GDNG portable ZIP produced by build-linux.
         type: boolean
         default: false
     resource_class: medium
@@ -801,7 +797,7 @@ jobs:
             set +e
             cd newIDE/visual-tests
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/GDNG-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdng-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in the build-linux workspace." >&2
                 exit 1
@@ -930,10 +926,8 @@ workflows:
           requires:
             - build-linux
 
-  # On `master`/`stable` (or when explicitly asked for): manipulate the editors
-  # in a real browser and check that nothing is broken, with every test.
-  # (`master`, `stable` and the experimental builds also run the editor suite
-
+  # On custom/stable (or when explicitly asked for): run all Storybook visual
+  # monkey tests. The packaged-editor suite runs in the main build workflow.
   all-visual-tests:
     when:
       or:
@@ -953,10 +947,9 @@ workflows:
           parallelism: << pipeline.parameters.all-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-all
-  # On a branch / Pull Request: only run the tests related to what it changes
-  # (nothing at all when it changes nothing related to them). The editor suite
-  # runs against the latest portable build of `master` (a branch builds no
-  # suite does not itself build a packaged desktop application).
+  # On a branch / Pull Request: run only Storybook tests related to changed
+  # files. The full desktop app package is validated on custom by the main
+  # multi-platform build workflow.
   changed-visual-tests:
     when:
       and:
