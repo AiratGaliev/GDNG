@@ -253,6 +253,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          assert_machine() {
+            local binary="$1"
+            local expected="$2"
+            local actual
+            actual="$(readelf -h "$binary" | sed -n 's/.*Machine:[[:space:]]*//p')"
+            echo "$binary: $actual"
+            test "$actual" = "$expected" || {
+              echo "Expected $expected architecture for $binary, got $actual" >&2
+              exit 1
+            }
+          }
+          x64_appimage="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.AppImage' ! -iname '*arm64*' -print -quit)"
+          arm64_appimage="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.AppImage' -iname '*arm64*' -print -quit)"
+          x64_deb="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.deb' ! -iname '*arm64*' -print -quit)"
+          arm64_deb="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.deb' -iname '*arm64*' -print -quit)"
+          test -n "$x64_appimage" && test -n "$arm64_appimage"
+          test -n "$x64_deb" && test -n "$arm64_deb"
+          assert_machine "$x64_appimage" "Advanced Micro Devices X86-64"
+          assert_machine "$arm64_appimage" "AArch64"
+          test "$(dpkg-deb -f "$x64_deb" Architecture)" = "amd64"
+          test "$(dpkg-deb -f "$arm64_deb" Architecture)" = "arm64"
+          for arch in x64 arm64; do
+            if [ "$arch" = x64 ]; then
+              zip_path="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname 'gdng-*.zip' ! -iname '*arm64*' -print -quit)"
+              expected="Advanced Micro Devices X86-64"
+            else
+              zip_path="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname 'gdng-*.zip' -iname '*arm64*' -print -quit)"
+              expected="AArch64"
+            fi
+            test -n "$zip_path"
+            temp_dir="$(mktemp -d)"
+            unzip -q "$zip_path" -d "$temp_dir"
+            executable="$(find "$temp_dir" -type f -name gdng -print -quit)"
+            test -n "$executable"
+            assert_machine "$executable" "$expected"
+            rm -rf "$temp_dir"
+          done
           rm -rf newIDE/electron-app/dist/linux-unpacked newIDE/electron-app/dist/linux-arm64-unpacked
           mkdir -p release-artifacts/linux
           find newIDE/electron-app/dist -maxdepth 1 -type f \( -iname '*.AppImage' -o -iname '*.deb' -o -iname '*.zip' \) -exec cp {} release-artifacts/linux/ \;
@@ -306,6 +343,26 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=7168
         run: npm run build -- --mac --publish=never
+      - name: Verify universal macOS executable architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="newIDE/electron-app/dist/mac-universal/GDNG.app"
+          for binary in \
+            "$app/Contents/MacOS/GDNG" \
+            "$app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"; do
+            test -f "$binary"
+            architectures="$(xcrun lipo -archs "$binary")"
+            echo "$binary: $architectures"
+            [[ " $architectures " == *" x86_64 "* ]] || {
+              echo "Missing x86_64 slice in $binary" >&2
+              exit 1
+            }
+            [[ " $architectures " == *" arm64 "* ]] || {
+              echo "Missing arm64 slice in $binary" >&2
+              exit 1
+            }
+          done
       - name: Stage and verify macOS release files
         shell: bash
         run: |

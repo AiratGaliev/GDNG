@@ -315,6 +315,14 @@ assert.doesNotMatch(publisher, /circleBuildUrl/);
 const editorConfig = require(
   path.join(root, 'newIDE/electron-app/electron-builder-config.js')
 );
+assert.equal(
+  editorConfig.electronDist,
+  undefined,
+  'electron-builder must resolve Electron separately for each target architecture; a single preinstalled dist is host-architecture-specific.'
+);
+assert.match(linuxJob, /readelf -h/);
+assert.match(linuxJob, /dpkg-deb -f/);
+assert.match(macosJob, /xcrun lipo -archs/);
 const linuxTargets = editorConfig.linux.target
   .map(target => target.target)
   .sort();

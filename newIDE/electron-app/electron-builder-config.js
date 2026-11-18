@@ -11,10 +11,9 @@ const config = {
     buildResources: 'build',
     output: 'dist',
   },
-  // Reuse the Electron distribution installed by this package's postinstall.
-  // This avoids a second GitHub download during packaging and works offline
-  // once npm has installed the pinned Electron version.
-  electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist'),
+  // Let electron-builder resolve Electron for every target architecture.
+  // A single node_modules/electron/dist is tied to the npm install host arch
+  // and must not be reused for Linux arm64 or the macOS universal merge.
   extraResources: [
     {
       from: '../app/resources/GDJS',

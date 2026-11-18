@@ -132,7 +132,7 @@ CircleCI remains the upstream-derived branch validation pipeline at `.circleci/c
 The release graph performs these steps:
 
 1. Builds `GDevelop.js` and `libGD.wasm` once from the tagged commit using Emscripten 3.1.21. The exact artifact is passed to all three desktop build jobs; no prebuilt upstream or S3 binary is used.
-2. Builds Windows x64 (unsigned NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP), and macOS universal (DMG and ZIP). The macOS job uses the supported `macos-15-intel` GitHub-hosted runner; the retired `macos-14` label is not used.
+2. Builds Windows x64 (unsigned NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP), and macOS universal (DMG and ZIP). The macOS job uses the supported `macos-15-intel` GitHub-hosted runner; the retired `macos-14` label is not used. The electron-builder config must not pin one host-installed `electronDist`: electron-builder resolves Electron separately for each target architecture. CI verifies x64/arm64 ELF machine types inside Linux AppImages and portable ZIPs, DEB architecture metadata, and both Mach-O slices in the macOS app executable and Electron Framework.
 3. Runs the IDE unit suite, Flow, GDJS TypeScript checks, GDevelop.js tests, native GDCore ASan/UBSan tests, and the debug-sanitizers/clang-tidy GDevelop.js checks.
 4. Runs Linux CLI HTML5 export against the just-built Linux ZIP, the complete Storybook visual suite, and the packaged-editor visual suite against that same Linux ZIP.
 5. Uploads the platform outputs as workflow artifacts. Only after every required job succeeds does `publish-release` download all three platform artifacts and invoke `scripts/publish-gdng-release.cjs`.
