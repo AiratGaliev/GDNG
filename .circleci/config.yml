@@ -50,8 +50,31 @@ commands:
               circleci-agent step halt
             fi
 jobs:
+  verify-gdng-ci:
+    docker:
+      - image: cimg/node:24.13.0
+    working_directory: ~/GDevelop
+    steps:
+      - checkout
+      - run:
+          name: Verify GDNG CI and release configuration
+          command: node scripts/verify-gdng-ci.cjs
+      - run:
+          name: Verify GDNG local feature policy
+          command: node scripts/verify-gdng-local-policy.cjs
+      - run:
+          name: Check JavaScript tooling syntax
+          command: |
+            node --check scripts/verify-gdng-ci.cjs
+            node --check scripts/publish-gdng-release.cjs
+            node --check newIDE/app/scripts/test-portable-cli-export.js
+
   # Build the **entire** app for macOS (including the GDevelop.js library).
   build-macos:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
     macos:
       xcode: 16.4.0
     resource_class: m4pro.medium
@@ -118,7 +141,25 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
+
+      - when:
+          condition: << parameters.publish-release-assets >>
+          steps:
+            - run:
+                name: Stage macOS GitHub Release assets
+                command: |
+                  mkdir -p release-artifacts/macos
+                  find newIDE/electron-app/dist -maxdepth 1 -type f -print0 | xargs -0 -I{} cp "{}" release-artifacts/macos/
+                  test -n "$(find release-artifacts/macos -maxdepth 1 -type f -print -quit)"
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - release-artifacts/macos
   build-linux:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
     # CircleCI docker workers are failing if they don't have enough memory (no swap)
     resource_class: xlarge
     docker:
@@ -185,6 +226,11 @@ jobs:
                 *) cp "$f" build-linux-workspace/ ;;
               esac
             done
+            if [ "<< parameters.publish-release-assets >>" = "true" ]; then
+              mkdir -p build-linux-workspace/release-artifacts/linux
+              find newIDE/electron-app/dist -maxdepth 1 -type f -print0 | xargs -0 -I{} cp "{}" build-linux-workspace/release-artifacts/linux/
+              test -n "$(find build-linux-workspace/release-artifacts/linux -maxdepth 1 -type f -print -quit)"
+            fi
             ls -lh build-linux-workspace
       - persist_to_workspace:
           root: build-linux-workspace
@@ -384,6 +430,10 @@ jobs:
             Core/GDCore_tests
 
   build-windows:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
     executor:
       name: win/default
       size: medium
@@ -462,6 +512,7 @@ jobs:
             $Env:GD_PORTABLE_BUILD = 'true'
 
             node scripts/build.js --skip-app-build --win zip --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
             cd ..\..
 
@@ -474,6 +525,38 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
+
+      - when:
+          condition: << parameters.publish-release-assets >>
+          steps:
+            - run:
+                name: Stage Windows GitHub Release assets
+                command: |
+                  New-Item -ItemType Directory -Force release-artifacts\windows | Out-Null
+                  Get-ChildItem newIDE\electron-app\dist -File | Copy-Item -Destination release-artifacts\windows
+                  if (-not (Get-ChildItem release-artifacts\windows -File)) {
+                    throw "No Windows release assets were staged."
+                  }
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - release-artifacts/windows
+
+  publish-gdng-release:
+    docker:
+      - image: cimg/node:24.13.0
+    working_directory: ~/GDevelop
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Verify GDNG CI and release targets
+          command: node scripts/verify-gdng-ci.cjs
+      - run:
+          name: Publish verified platform builds to GitHub Releases
+          no_output_timeout: 30m
+          command: node scripts/publish-gdng-release.cjs
 
   # End-to-end test that runs the GDevelop CLI to export an example game
   # to HTML5, using either the portable Linux build just produced by
@@ -828,6 +911,10 @@ jobs:
           command: exit "$(cat /tmp/visual-tests-exit-code)"
 
 workflows:
+  ci-validation:
+    jobs:
+      - verify-gdng-ci
+
   gdevelop_js-wasm-extra-checks:
     jobs:
       - build-gdevelop_js-debug-sanitizers-and-extra-checks:
@@ -971,3 +1058,56 @@ workflows:
           parallelism: << pipeline.parameters.changed-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-changed
+
+  # Publish a versioned GDNG GitHub Release only after all target platforms
+  # and release smoke tests have completed successfully.
+  gdng-release:
+    jobs:
+      - verify-gdng-ci:
+          filters: &gdng-release-tag-filter
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^gdng-v[0-9]+\.[0-9]+\.[0-9]+$/
+      - build-gdevelop_js-wasm-only:
+          filters: *gdng-release-tag-filter
+      - build-gdcore-tests-sanitizers:
+          filters: *gdng-release-tag-filter
+      - build-gdevelop_js-debug-sanitizers-and-extra-checks:
+          filters: *gdng-release-tag-filter
+      - build-macos:
+          publish-release-assets: true
+          filters: *gdng-release-tag-filter
+      - build-linux:
+          requires:
+            - build-gdevelop_js-wasm-only
+          publish-release-assets: true
+          filters: *gdng-release-tag-filter
+      - build-windows:
+          requires:
+            - build-gdevelop_js-wasm-only
+          publish-release-assets: true
+          filters: *gdng-release-tag-filter
+      - run-cli-html5-export-linux:
+          name: release-cli-html5-export-linux
+          use-local-build: true
+          requires:
+            - build-linux
+          filters: *gdng-release-tag-filter
+      - run-visual-monkey-tests-editor-linux:
+          name: release-visual-monkey-tests-editor-linux
+          use-local-build: true
+          requires:
+            - build-linux
+          filters: *gdng-release-tag-filter
+      - publish-gdng-release:
+          requires:
+            - verify-gdng-ci
+            - build-macos
+            - build-linux
+            - build-windows
+            - build-gdcore-tests-sanitizers
+            - build-gdevelop_js-debug-sanitizers-and-extra-checks
+            - release-cli-html5-export-linux
+            - release-visual-monkey-tests-editor-linux
+          filters: *gdng-release-tag-filter

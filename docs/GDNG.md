@@ -45,17 +45,18 @@ The workflow:
 2. Fetches the exact upstream tag.
 3. Skips a tag already contained in `custom`.
 4. Merges the release into a temporary `automation/upstream-<tag>` branch.
-5. Stops without pushing if Git reports merge conflicts.
-6. Opens a pull request targeting `custom`.
-7. Dispatches a candidate Windows build for that pull-request branch.
+5. Stops without pushing if Git reports merge conflicts. In particular, a conflict in `.circleci/config.yml` is never resolved by blindly choosing either side.
+6. Runs `scripts/verify-gdng-ci.cjs` after a successful merge and before publishing the candidate branch.
+7. Opens a pull request targeting `custom`.
+8. Dispatches a candidate Windows build for that pull-request branch.
 
-Upstream updates are **not auto-merged**. Review the PR diff and wait for the candidate build before merging. If a merge conflict occurs, resolve it on a dedicated branch, keep the local feature policy intact, run the checks below, and then open/update the PR.
+Upstream updates are **not auto-merged**. Review the PR diff and wait for the candidate build before merging. A conflicting CircleCI file blocks the automation instead of overwriting the GDNG pipeline; reconcile upstream CI improvements with the GDNG platform/artifact requirements explicitly, then rerun `scripts/verify-gdng-ci.cjs`. Never resolve that conflict by taking the complete `ours` or `theirs` version without reviewing the resulting jobs and workflows.
 
 The automation uses the repository-scoped `GITHUB_TOKEN`; no personal access token or manually stored secret is required. The repository Actions setting permits write tokens and PR creation; each workflow/job still declares only the required `contents`, `pull-requests`, and `actions` scopes. The workflow explicitly dispatches the candidate build because GitHub does not automatically start a new workflow for most events created with `GITHUB_TOKEN`; `workflow_dispatch` is an exception.
 
 ## Build and artifacts
 
-`.github/workflows/build-portable-windows.yml` runs for pushes to `custom` and can be manually dispatched against a branch, tag or commit.
+`.github/workflows/build-portable-windows.yml` is manually dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch; it is not an automatic push-triggered build.
 
 The workflow runs the complete IDE unit suite and Flow on Ubuntu (the upstream resource-path tests assume POSIX path semantics), checks GDJS TypeScript types, then builds an unsigned portable Windows ZIP on Windows and uploads it as a GitHub Actions artifact for 30 days. It does not publish installers, sign binaries, create a GitHub Release, or deploy anything externally.
 
@@ -107,6 +108,7 @@ git fetch upstream --tags
 git merge --no-ff vX.Y.Z
 
 node scripts/verify-gdng-local-policy.cjs
+node scripts/verify-gdng-ci.cjs
 git diff --check
 
 # Run tests, Flow and the portable build before pushing:
@@ -135,6 +137,29 @@ CircleCI branch filters use custom as the fork primary branch. The scheduled end
 
 .semaphore/semaphore.yml remains the fast validation pipeline (Flow, TypeScript, formatting, lint and tests). It intentionally does not build the C++/WebAssembly engine, so its results are preliminary; the CircleCI build is the authoritative full-engine and packaging validation. .travis.yml retains the upstream full-test configuration on the custom branch. appveyor.yml is retained only as the deprecated upstream reference; CircleCI owns the Windows build.
 
-The GitHub Actions workflow .github/workflows/build-portable-windows.yml is a manually dispatched Windows fallback used by upstream-release automation. It is not the primary release matrix. The multi-platform artifact set is produced by CircleCI.
+The GitHub Actions workflow .github/workflows/build-portable-windows.yml is a manually dispatched Windows fallback used by upstream-release automation. It is not the primary release matrix. The multi-platform artifact set is produced and published by CircleCI.
+
+### GitHub Release publishing
+
+A tag matching `gdng-v<version>` triggers the dedicated `gdng-release` CircleCI workflow. It builds Windows x64 (NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP) and a universal macOS build (DMG and ZIP). The release is not published until native Core checks, WebAssembly checks, the Linux CLI HTML5 export smoke test and the packaged-editor visual test have all passed.
+
+Platform jobs persist their output into the CircleCI workspace. The final `publish-gdng-release` job checks that every expected artifact exists, writes `gdng-release-metadata.json` and `SHA256SUMS.txt`, uploads the files to a GitHub draft release, and publishes it only after all uploads succeed. A failed upload leaves the release as a draft so it cannot be mistaken for a complete build. A published release is never overwritten.
+
+Before tagging, enable the `AiratGaliev/GDNG` project in CircleCI and add `GDNG_GITHUB_TOKEN` under **Project Settings → Environment Variables**. Use a fine-grained GitHub token restricted to this repository with **Contents: Read and write**. GitHub documents this permission for creating releases and managing release assets; if the tagged commit changes workflow files relative to the repository's default branch, the token also needs **Workflows: Read and write**. See [GitHub's release API permission requirements](https://docs.github.com/en/rest/releases/releases#fine-grained-access-tokens-for-create-a-release). Never put the token in the repository or CircleCI config.
+
+For the current package version, after the CircleCI project and token are configured, create and push the matching tag from `custom`:
+
+```powershell
+git switch custom
+git pull --ff-only origin custom
+git tag gdng-v5.6.287
+git push origin gdng-v5.6.287
+```
+
+The tag must match `newIDE/electron-app/app/package.json`. The publisher rejects a mismatched tag, missing platform artifacts, duplicate asset names, and attempts to overwrite an already published release. Regular branch builds continue to store artifacts in CircleCI; they do not create or publish GitHub Releases.
 
 **Signing status:** the CI artifacts are unsigned. Windows SmartScreen and macOS Gatekeeper may display warnings. Signing/notarization can be added later with GDNG-owned certificates and secrets; upstream credentials must never be reused.
+
+### Upstream CI preservation
+
+`scripts/verify-gdng-ci.cjs` checks the fork-owned CircleCI job graph, WebAssembly workspace hand-off, GDNG Linux archive naming, unsigned Windows targets, release target matrix and manual-only Windows fallback. Upstream release synchronization runs this verifier after the Git merge and before it pushes an update branch. This is a fail-closed guard: if upstream changes CI without producing a textual conflict but breaks a required GDNG build path, the sync stops before creating a pull request. A direct conflict in `.circleci/config.yml` also stops the merge before any branch is published.

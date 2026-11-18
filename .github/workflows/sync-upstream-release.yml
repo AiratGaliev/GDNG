@@ -78,10 +78,19 @@ jobs:
           git switch --create "$branch" custom
 
           if ! git merge --no-edit --no-ff "$tag"; then
+            conflicts="$(git diff --name-only --diff-filter=U || true)"
+            if printf '%s\n' "$conflicts" | grep -Fxq '.circleci/config.yml'; then
+              echo "Upstream and GDNG both changed .circleci/config.yml." >&2
+              echo "Stopping without choosing either side: reconcile the upstream CI changes with the GDNG overlay first." >&2
+            fi
             git merge --abort
             echo "Upstream merge conflict for $tag. No branch or PR was published." >&2
             exit 1
           fi
+
+          # A non-conflicting Git merge can still change CI behavior. Verify the
+          # fork-owned platform matrix and artifact flow before publishing an update PR.
+          node scripts/verify-gdng-ci.cjs
 
           git diff --check custom...HEAD
           git push --set-upstream origin "$branch"

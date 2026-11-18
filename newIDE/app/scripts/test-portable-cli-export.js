@@ -8,7 +8,7 @@
  *      as `make-version-metadata.js`).
  *   2. Gets the matching Linux portable zip, either from a local path
  *      (via --zipPath, e.g. the artifact a build-linux job just produced)
- *      or by downloading it from S3.
+ *      or by downloading it from the matching GDNG GitHub Release.
  *   3. Extracts it with adm-zip.
  *   4. Sparse-clones an example game from the GDevelop-examples repository
  *      (defaults to "3d-platformer").
@@ -19,7 +19,7 @@
  *
  * Usage:
  *   node test-portable-cli-export.js [--branch=custom] [--example=3d-platformer]
- *                                    [--zipPath=/path/to/gdevelop-X.Y.Z.zip]
+ *                                    [--zipPath=/path/to/gdng-X.Y.Z.zip]
  *                                    [--workDir=./.portable-cli-test]
  *                                    [--artifactsDir=./portable-cli-artifacts]
  */
@@ -41,9 +41,8 @@ const workDir = path.resolve(args['workDir'] || './.portable-cli-test');
 const artifactsDir = path.resolve(
   args['artifactsDir'] || './portable-cli-artifacts'
 );
-// If set, use this local zip instead of downloading from S3 (useful when
-// running the smoke test right after a build-linux job that already produced
-// the portable zip on disk).
+// If set, use this local zip instead of downloading it from GitHub Releases
+// (useful when the smoke test runs immediately after build-linux).
 const localZipPath = args['zipPath'] ? path.resolve(args['zipPath']) : null;
 
 const version = electronAppPackageJson.version;
@@ -73,8 +72,8 @@ const fail = msg => {
   shell.mkdir('-p', artifactsDir);
 
   // 1. Get the Linux portable zip — either from a local path passed in via
-  //    --zipPath (e.g. when chained after a build-linux job) or by
-  //    downloading the latest version from S3.
+  //    --zipPath (e.g. when chained after a build-linux job) or from the
+  //    matching GDNG GitHub Release.
   let portableZipPath;
   if (localZipPath) {
     if (!fs.existsSync(localZipPath)) {
