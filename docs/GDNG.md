@@ -91,7 +91,7 @@ $env:GD_PORTABLE_BUILD = 'true'
 node scripts/build.js --win zip --publish never
 ```
 
-The Electron package's install script installs its nested editor and GDJS dependencies and imports resources. `electron-builder-config.js` points `electronDist` to the already-installed Electron distribution, avoiding a second download during packaging. Modern npm versions block Git dependencies by default, so `newIDE/app/.npmrc` uses `allow-git=root`: only Git dependencies explicitly declared by the IDE's own `package.json` are allowed. The workflow rewrites the public upstream GitHub SSH dependency URL to HTTPS so CI does not need a personal SSH key. The Electron postinstall script is explicitly allowlisted in `newIDE/electron-app/package.json` for the pinned Electron version, and GDJS explicitly allowlists its pinned `esbuild` postinstall in `GDJS/package.json`. The build-policy check verifies these narrow allowlists. Do not globally disable npm's Git-dependency or install-script protections. If you change C++ Core or native extensions, consult `GDevelop.js/README.md` and rebuild the WebAssembly bindings with the documented Emscripten version.
+The Electron package's install script installs its nested Electron dependencies and imports resources. Do not pin `electronDist` to the host-installed `node_modules/electron/dist`: that directory is architecture-specific and breaks Linux ARM64 and macOS universal packaging. Let electron-builder resolve the matching Electron distribution for each target architecture. Modern npm versions block Git dependencies by default, so `newIDE/app/.npmrc` uses `allow-git=root`: only Git dependencies explicitly declared by the IDE's own `package.json` are allowed. The workflow rewrites the public upstream GitHub SSH dependency URL to HTTPS so CI does not need a personal SSH key. The Electron postinstall script is explicitly allowlisted in `newIDE/electron-app/package.json` for the pinned Electron version, and GDJS explicitly allowlists its pinned `esbuild` postinstall in `GDJS/package.json`. The build-policy check verifies these narrow allowlists. Do not globally disable npm's Git-dependency or install-script protections. If you change C++ Core or native extensions, consult `GDevelop.js/README.md` and rebuild the WebAssembly bindings with the documented Emscripten version.
 
 ## Manual upstream update
 
@@ -123,7 +123,7 @@ Keep upstream license files and copyright notices intact. The Core, game engine,
 
 ## CI and platform builds
 
-CircleCI remains the upstream-derived branch validation pipeline at `.circleci/config.yml`. It retains the jobs for current-commit WebAssembly builds, Core sanitizer checks, IDE/GDJS validation, desktop packaging, CLI export and visual tests. The `custom` branch is the downstream primary branch. CircleCI is **not** configured as a GitHub Release publisher, so it cannot race with the release workflow or overwrite release assets.
+CircleCI remains the upstream-derived branch validation pipeline at `.circleci/config.yml`. Its build graph follows upstream: `build-gdevelop_js-wasm-only` creates the exact current-commit Core/WebAssembly artifact; `build-app-for-desktop` consumes that workspace, imports the exact bindings and builds the web editor once; Linux and Windows then package the same persisted editor output with `--skip-app-build`. macOS retains its independent native build path, as in upstream. The graph also retains the Core sanitizer, GDJS/WASM, IDE, CLI-export and visual-test jobs. The `custom` branch is the downstream primary branch. CircleCI is **not** configured as a GitHub Release publisher, so it cannot race with the release workflow or overwrite release assets.
 
 ### Authoritative multi-platform GitHub Release workflow
 
@@ -158,6 +158,6 @@ GitHub Actions will then build from that exact tag and publish the Release autom
 
 `.github/workflows/sync-upstream-release.yml` continues to prepare PRs only; it never auto-merges upstream into `custom`. On a Git conflict it aborts before pushing a candidate branch. After a conflict-free merge it runs `scripts/verify-gdng-ci.cjs` before publishing the candidate branch.
 
-The verifier protects both CI systems: it checks the CircleCI branch jobs and WebAssembly workspace dependencies, and it checks the GitHub release workflow's platform jobs, exact-commit WASM hand-off, tests, publisher dependencies and validation-only dispatch. This is intended to stop an upstream update that would silently remove GDNG's release matrix or its safety gates.
+The verifier protects both CI systems: it checks the CircleCI reusable dependency/Emscripten commands, current-commit WASM hand-off, shared editor build workspace and downstream platform dependencies, and it checks the GitHub release workflow's platform jobs, exact-commit WASM hand-off, tests, publisher dependencies and validation-only dispatch. This is intended to stop an upstream update that would silently remove GDNG's release matrix or its safety gates.
 
 `.github/workflows/build-portable-windows.yml` remains a manual Windows fallback for troubleshooting. It is not a release workflow and does not publish GitHub Releases.

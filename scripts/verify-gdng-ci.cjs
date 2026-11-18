@@ -42,6 +42,7 @@ const circleWorkflows = extractTopLevelSection(circleci, 'workflows');
 for (const jobName of [
   'verify-gdng-ci',
   'build-macos',
+  'build-app-for-desktop',
   'build-linux',
   'build-gdevelop_js-wasm-only',
   'build-gdevelop_js-debug-sanitizers-and-extra-checks',
@@ -55,6 +56,11 @@ for (const jobName of [
   extractIndentedSection(circleJobs, jobName, 2);
 }
 
+const circleCommands = extractTopLevelSection(circleci, 'commands');
+assert.match(circleCommands, /^  write-dependencies-checksum:/m);
+assert.match(circleCommands, /^  install-emscripten-sdk:/m);
+assert.match(circleCommands, /^  save-emscripten-sdk:/m);
+
 const wasmBuild = extractIndentedSection(
   circleJobs,
   'build-gdevelop_js-wasm-only',
@@ -62,15 +68,37 @@ const wasmBuild = extractIndentedSection(
 );
 assert.match(
   wasmBuild,
+  /install-emscripten-sdk:[\s\S]*?cache-key: emsdk-3\.1\.21-linux-v1/,
+  'The normal WASM job must use the reusable, cached Emscripten installer.'
+);
+assert.match(
+  wasmBuild,
   /persist_to_workspace:[\s\S]*?paths:[\s\S]*?- Binaries\/embuild\/GDevelop\.js/,
   'CircleCI branch validation must persist its exact-commit WebAssembly output.'
 );
 
+const buildApp = extractIndentedSection(circleJobs, 'build-app-for-desktop', 2);
+assert.match(buildApp, /attach_workspace:[\s\S]*?at: \./);
+assert.match(buildApp, /REQUIRES_EXACT_LIBGD_JS_VERSION=true/);
+assert.match(buildApp, /npm run build/);
+assert.match(
+  buildApp,
+  /persist_to_workspace:[\s\S]*?- newIDE\/app\/build[\s\S]*?- newIDE\/app\/public\/libGD\.wasm/,
+  'The shared editor build must persist its build, GDJS resources and exact Core/WASM files.'
+);
+
 for (const jobName of ['build-linux', 'build-windows']) {
+  const job = extractIndentedSection(circleJobs, jobName, 2);
+  assert.match(job, /attach_workspace:[\s\S]*?at: \./);
   assert.match(
-    extractIndentedSection(circleJobs, jobName, 2),
-    /attach_workspace:/,
-    jobName + ' must consume the same-commit WebAssembly workspace.'
+    job,
+    /node scripts\/app-build\.js --skip-app-build/,
+    jobName + ' must package the shared upstream-style editor build.'
+  );
+  assert.match(
+    job,
+    /node scripts\/build\.js --skip-app-build/,
+    jobName + ' must not rebuild the editor during platform packaging.'
   );
 }
 
@@ -78,16 +106,18 @@ const circleBuilds = extractIndentedSection(circleWorkflows, 'builds', 2);
 assert.ok(circleBuilds.includes('      - build-gdevelop_js-wasm-only'));
 assert.ok(
   circleBuilds.includes(
-    '      - build-linux:\n          requires:\n            - build-gdevelop_js-wasm-only'
+    '      - build-app-for-desktop:\n          requires:\n            - build-gdevelop_js-wasm-only'
   ),
-  'The main CircleCI Linux build must depend on current-commit WASM.'
+  'The main CircleCI editor build must consume the current-commit WASM workspace.'
 );
-assert.ok(
-  circleBuilds.includes(
-    '      - build-windows:\n          requires:\n            - build-gdevelop_js-wasm-only'
-  ),
-  'The main CircleCI Windows build must depend on current-commit WASM.'
-);
+for (const jobName of ['build-linux', 'build-windows']) {
+  assert.ok(
+    circleBuilds.includes(
+      '      - ' + jobName + ':\n          requires:\n            - build-app-for-desktop'
+    ),
+    'The main CircleCI ' + jobName + ' package must consume the shared editor build.'
+  );
+}
 
 const dailyWorkflow = extractIndentedSection(
   circleWorkflows,
@@ -97,9 +127,15 @@ const dailyWorkflow = extractIndentedSection(
 assert.ok(dailyWorkflow.includes('      - build-gdevelop_js-wasm-only'));
 assert.ok(
   dailyWorkflow.includes(
-    '      - build-linux:\n          requires:\n            - build-gdevelop_js-wasm-only'
+    '      - build-app-for-desktop:\n          requires:\n            - build-gdevelop_js-wasm-only'
   ),
-  'The daily Linux E2E workflow must build WASM before the editor package.'
+  'The daily E2E workflow must build the shared editor from current-commit WASM.'
+);
+assert.ok(
+  dailyWorkflow.includes(
+    '      - build-linux:\n          requires:\n            - build-app-for-desktop'
+  ),
+  'The daily Linux E2E package must consume the shared editor build.'
 );
 
 assert.match(circleci, /origin\/custom/);
