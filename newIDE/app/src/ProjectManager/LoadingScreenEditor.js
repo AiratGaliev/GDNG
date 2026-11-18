@@ -23,7 +23,7 @@ import Text from '../UI/Text';
 import AlertMessage from '../UI/AlertMessage';
 import GetSubscriptionCard from '../Profile/Subscription/GetSubscriptionCard';
 import AuthenticatedUserContext from '../Profile/AuthenticatedUserContext';
-import { hasValidSubscriptionPlan } from '../Utils/GDevelopServices/Usage';
+import { canUseLocalFeature } from '../Utils/LocalFeaturePolicy';
 import { ProjectScopedContainersAccessor } from '../InstructionOrExpression/EventsScope';
 
 type Props = {|
@@ -71,7 +71,7 @@ export const LoadingScreenEditor = ({
   const subscriptionChecker = React.useRef<?SubscriptionCheckerInterface>(null);
   const authenticatedUser = React.useContext(AuthenticatedUserContext);
   const forceUpdate = useForceUpdate();
-  const hasValidSubscription = hasValidSubscriptionPlan(
+  const hasLocalFeatureAccess = canUseLocalFeature(
     authenticatedUser.subscription
   );
 
@@ -109,7 +109,7 @@ export const LoadingScreenEditor = ({
                       !checked &&
                       !watermark.isGDevelopWatermarkShown() &&
                       subscriptionChecker.current &&
-                      !subscriptionChecker.current.checkUserHasSubscription()
+                      !subscriptionChecker.current.checkLocalFeatureAccess()
                     ) {
                       // If user wants to deactivate GDevelop splash screen although
                       // watermark is hidden, we don't allow it if they have no subscription.
@@ -165,7 +165,7 @@ export const LoadingScreenEditor = ({
                       !checked &&
                       !loadingScreen.isGDevelopLogoShownDuringLoadingScreen() &&
                       subscriptionChecker.current &&
-                      !subscriptionChecker.current.checkUserHasSubscription()
+                      !subscriptionChecker.current.checkLocalFeatureAccess()
                     ) {
                       // If user wants to deactivate watermark although GDevelop splash
                       // screen is hidden, we don't allow it if they have no subscription.
@@ -184,7 +184,7 @@ export const LoadingScreenEditor = ({
                       );
                     } else if (
                       subscriptionChecker.current &&
-                      !subscriptionChecker.current.hasUserSubscription()
+                      !subscriptionChecker.current.hasLocalFeatureAccess()
                     ) {
                       if (
                         loadingScreen.getMinDuration() < forcedLogo.minDuration
@@ -237,7 +237,7 @@ export const LoadingScreenEditor = ({
                 </SelectField>
               </Column>
             </ResponsiveLineStackLayout>
-            {!hasValidSubscription && (
+            {!hasLocalFeatureAccess && (
               <GetSubscriptionCard
                 subscriptionDialogOpeningReason="Disable GDevelop splash at startup"
                 recommendedPlanId="gdevelop_silver"
@@ -443,7 +443,7 @@ export const LoadingScreenEditor = ({
                 newMinDuration < forcedLogo.minDuration &&
                 !watermark.isGDevelopWatermarkShown() &&
                 subscriptionChecker.current &&
-                !subscriptionChecker.current.checkUserHasSubscription()
+                !subscriptionChecker.current.checkLocalFeatureAccess()
               ) {
                 // If users want to reduce GDevelop splash screen although
                 // watermark is hidden, we don't allow it if they have no subscription.
@@ -484,7 +484,7 @@ export const LoadingScreenEditor = ({
                     forcedLogo.logoAndProgressLogoFadeInDelay &&
                   !watermark.isGDevelopWatermarkShown() &&
                   subscriptionChecker.current &&
-                  !subscriptionChecker.current.checkUserHasSubscription()
+                  !subscriptionChecker.current.checkLocalFeatureAccess()
                 ) {
                   // If users want to reduce GDevelop splash screen although
                   // watermark is hidden, we don't allow it if they have no subscription.
@@ -525,7 +525,7 @@ export const LoadingScreenEditor = ({
                     forcedLogo.logoAndProgressFadeInDuration &&
                   !watermark.isGDevelopWatermarkShown() &&
                   subscriptionChecker.current &&
-                  !subscriptionChecker.current.checkUserHasSubscription()
+                  !subscriptionChecker.current.checkLocalFeatureAccess()
                 ) {
                   // If users want to reduce GDevelop splash screen although
                   // watermark is hidden, we don't allow it if they have no subscription.

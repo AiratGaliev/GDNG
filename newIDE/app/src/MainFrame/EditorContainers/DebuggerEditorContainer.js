@@ -25,7 +25,7 @@ import {
 } from '../../EmbeddedGame/EmbeddedGameFrame';
 
 type State = {|
-  subscriptionChecked: boolean,
+  localFeatureAccessChecked: boolean,
 |};
 
 export class DebuggerEditorContainer extends React.Component<
@@ -33,10 +33,10 @@ export class DebuggerEditorContainer extends React.Component<
   State
 > {
   editor: ?Debugger;
-  _subscriptionChecker: ?SubscriptionCheckerInterface;
+  _localFeatureAccessChecker: ?SubscriptionCheckerInterface;
   // $FlowFixMe[missing-local-annot]
   state = {
-    subscriptionChecked: false,
+    localFeatureAccessChecked: false,
   };
 
   shouldComponentUpdate(nextProps: RenderEditorContainerProps): any {
@@ -125,22 +125,22 @@ export class DebuggerEditorContainer extends React.Component<
 
   // To be updated, see https://reactjs.org/docs/react-component.html#unsafe_componentwillreceiveprops.
   UNSAFE_componentWillReceiveProps() {
-    this._checkUserHasSubscription();
+    this._checkLocalFeatureAccess();
   }
 
   componentDidMount() {
-    this._checkUserHasSubscription();
+    this._checkLocalFeatureAccess();
   }
 
-  _checkUserHasSubscription() {
+  _checkLocalFeatureAccess() {
     if (
-      this._subscriptionChecker &&
+      this._localFeatureAccessChecker &&
       this.props.isActive &&
-      !this.state.subscriptionChecked
+      !this.state.localFeatureAccessChecked
     ) {
-      this._subscriptionChecker.checkUserHasSubscription();
+      this._localFeatureAccessChecker.checkLocalFeatureAccess();
       this.setState({
-        subscriptionChecked: true,
+        localFeatureAccessChecked: true,
       });
     }
   }
@@ -159,7 +159,7 @@ export class DebuggerEditorContainer extends React.Component<
         />
         <SubscriptionChecker
           ref={subscriptionChecker =>
-            (this._subscriptionChecker = subscriptionChecker)
+            (this._localFeatureAccessChecker = subscriptionChecker)
           }
           id="Debugger"
           title={<Trans>Debugger</Trans>}

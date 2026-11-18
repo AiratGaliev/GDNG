@@ -1,12 +1,12 @@
 {
-  "name": "gdevelop",
-  "productName": "GDevelop 5",
-  "description": "GDevelop 5 IDE running on the Electron runtime",
+  "name": "gdng",
+  "productName": "GDNG",
+  "description": "GDNG — GDevelop Next Generation, an independent desktop editor fork.",
   "version": "1.0.0",
   "author": "Florian Rival",
   "license": "MIT",
-  "homepage": "http://gdevelop.io",
-  "repository": "github:4ian/GDevelop",
+  "homepage": "https://github.com/AiratGaliev/GDNG",
+  "repository": "github:AiratGaliev/GDNG",
   "private": true,
   "scripts": {
     "postinstall": "npm run import-zipped-electron-extensions && cd app && npm install && cd .. && npm run copy-electron-remote-to-app-resources",
@@ -32,5 +32,8 @@
   "dependencies": {
     "@electron/remote": "2.1.2",
     "electron-is": "^2.4.0"
+  },
+  "allowScripts": {
+    "electron@32.3.3": true
   }
 }

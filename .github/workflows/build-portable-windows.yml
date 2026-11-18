@@ -1,0 +1,187 @@
+name: Build GDNG Windows portable
+
+on:
+  push:
+    branches:
+      - custom
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch, tag, or commit to build (defaults to the selected ref)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gdng-windows-build-${{ inputs.source_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: IDE unit tests and Flow
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            newIDE/electron-app/package-lock.json
+            GDJS/package-lock.json
+
+      - name: Configure build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "NODE_OPTIONS=--max-old-space-size=8192" >> "$GITHUB_ENV"
+
+          # GDevelop declares a public GitHub dependency using the SSH shorthand.
+          # The runner has no personal SSH key, so rewrite public GitHub SSH URLs to HTTPS.
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+
+          python -m pip install --upgrade setuptools
+
+      - name: Install IDE and GDJS dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd newIDE/app
+          npm install --no-audit --no-fund
+
+      - name: Verify GDNG local feature and packaging policies
+        run: node scripts/verify-gdng-local-policy.cjs
+
+      - name: Run complete IDE unit test suite
+        shell: bash
+        run: |
+          cd newIDE/app
+          ./node_modules/.bin/react-app-rewired test --env=node --watchAll=false --runInBand
+
+      - name: Run GDJS TypeScript checks
+        shell: bash
+        run: |
+          cd GDJS
+          npm run check-types
+
+      - name: Run Flow type checking
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd newIDE/app
+          flow() { ./node_modules/.bin/flow "$@"; }
+          cleanup() { flow stop >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          flow start --max-workers 4 --wait --no-auto-restart
+          flow status --timeout 600000
+
+  build:
+    name: Build unsigned Windows portable ZIP
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            newIDE/electron-app/package-lock.json
+            GDJS/package-lock.json
+
+      - name: Configure build environment
+        shell: pwsh
+        run: |
+          $env:NODE_OPTIONS = '--max-old-space-size=8192'
+          "NODE_OPTIONS=$env:NODE_OPTIONS" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          # GDevelop declares a public GitHub dependency using the SSH shorthand.
+          # The runner has no personal SSH key, so rewrite public GitHub SSH URLs to HTTPS.
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+
+          python -m pip install --upgrade setuptools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify GDNG local feature and packaging policies
+        run: node scripts/verify-gdng-local-policy.cjs
+
+      - name: Install editor dependencies and import GDJS resources
+        shell: pwsh
+        run: |
+          Push-Location newIDE/app
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Install Electron application dependencies
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Build unsigned portable ZIP
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            $env:GD_PORTABLE_BUILD = 'true'
+            node scripts/build.js --win zip --publish never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Write build metadata
+        shell: pwsh
+        run: |
+          $metadata = [ordered]@{
+            product = 'GDNG'
+            upstream = 'https://github.com/4ian/GDevelop'
+            repository = $env:GITHUB_REPOSITORY
+            ref = $env:GITHUB_REF
+            commit = (git rev-parse HEAD).Trim()
+            builtAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+          }
+          $metadata | ConvertTo-Json -Depth 4 |
+            Set-Content newIDE/electron-app/dist/gdng-build-metadata.json -Encoding utf8
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v7
+        with:
+          name: gdng-windows-portable-${{ github.run_number }}
+          path: |
+            newIDE/electron-app/dist/*.zip
+            newIDE/electron-app/dist/gdng-build-metadata.json
+          if-no-files-found: error
+          retention-days: 30

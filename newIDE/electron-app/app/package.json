@@ -1,11 +1,11 @@
 {
-  "name": "gdevelop",
-  "productName": "GDevelop 5",
-  "description": "GDevelop 5 IDE - the open-source, cross-platform game engine designed for everyone",
+  "name": "gdng",
+  "productName": "GDNG",
+  "description": "GDNG — GDevelop Next Generation, an independent downstream fork of GDevelop.",
   "version": "5.6.287",
   "author": "GDevelop Team <hello@gdevelop.io>",
   "license": "MIT",
-  "homepage": "https://gdevelop.io",
+  "homepage": "https://github.com/AiratGaliev/GDNG",
   "main": "main.js",
   "dependencies": {
     "@electron/remote": "2.1.2",

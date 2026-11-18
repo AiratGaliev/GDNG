@@ -11,7 +11,7 @@ import {
   sendSubscriptionCheckDismiss,
 } from '../../Utils/Analytics/EventSender';
 import Text from '../../UI/Text';
-import { hasValidSubscriptionPlan } from '../../Utils/GDevelopServices/Usage';
+import { canUseLocalFeature } from '../../Utils/LocalFeaturePolicy';
 import { isNativeMobileApp } from '../../Utils/Platform';
 import InAppTutorialContext from '../../InAppTutorial/InAppTutorialContext';
 import GetSubscriptionCard from './GetSubscriptionCard';
@@ -19,8 +19,8 @@ import { ColumnStackLayout } from '../../UI/Layout';
 import { type SubscriptionPlacementId } from '../../Utils/Analytics/EventSender';
 
 export type SubscriptionCheckerInterface = {|
-  checkUserHasSubscription: () => boolean,
-  hasUserSubscription: () => boolean,
+  checkLocalFeatureAccess: () => boolean,
+  hasLocalFeatureAccess: () => boolean,
 |};
 
 type Props = {|
@@ -63,9 +63,9 @@ const SubscriptionChecker: React.ComponentType<{
       InAppTutorialContext
     );
 
-    const checkUserHasSubscription = () => {
+    const checkLocalFeatureAccess = () => {
       if (
-        hasValidSubscriptionPlan(authenticatedUser.subscription) ||
+        canUseLocalFeature(authenticatedUser.subscription) ||
         (isNotShownDuringInAppTutorial && currentlyRunningInAppTutorial)
       ) {
         setDialogOpen(false);
@@ -82,13 +82,13 @@ const SubscriptionChecker: React.ComponentType<{
       return false;
     };
 
-    const hasUserSubscription = () => {
-      return hasValidSubscriptionPlan(authenticatedUser.subscription);
+    const hasLocalFeatureAccess = () => {
+      return canUseLocalFeature(authenticatedUser.subscription);
     };
 
     React.useImperativeHandle(ref, () => ({
-      checkUserHasSubscription,
-      hasUserSubscription,
+      checkLocalFeatureAccess,
+      hasLocalFeatureAccess,
     }));
 
     return (

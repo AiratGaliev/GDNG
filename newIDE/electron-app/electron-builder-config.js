@@ -2,13 +2,19 @@
  * @type {import('electron-builder').Configuration}
  * @see https://www.electron.build/configuration/configuration
  */
+const path = require('path');
+
 const config = {
-  appId: 'com.gdevelop-app.ide',
+  appId: 'com.gdng.editor',
   directories: {
     app: 'app',
     buildResources: 'build',
     output: 'dist',
   },
+  // Reuse the Electron distribution installed by this package's postinstall.
+  // This avoids a second GitHub download during packaging and works offline
+  // once npm has installed the pinned Electron version.
+  electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist'),
   extraResources: [
     {
       from: '../app/resources/GDJS',
@@ -48,7 +54,7 @@ const config = {
       'Contents/Resources/app.asar.unpacked/node_modules/steamworks.js/dist/osx/steamworksjs.darwin-*.node',
   },
   win: {
-    executableName: 'GDevelop',
+    executableName: 'GDNG',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'zip', arch: ['x64'] },
@@ -78,14 +84,22 @@ const config = {
     ],
   },
   afterSign: 'scripts/electron-builder-after-sign.js',
+  // The packaged app must only check GDNG releases, never upstream GDevelop.
   publish: [
     {
       provider: 'github',
+      owner: 'AiratGaliev',
+      repo: 'GDNG',
+      releaseType: 'release',
     },
   ],
 };
 
 if (process.env.GD_PORTABLE_BUILD === 'true') {
+  config.extraResources.push({
+    from: path.join(__dirname, 'build', 'gdng-portable-mode.flag'),
+    to: 'gdng-portable-mode.flag',
+  });
   config.mac.identity = null;
   config.mac.hardenedRuntime = false;
   config.afterSign = undefined;

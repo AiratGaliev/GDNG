@@ -1,0 +1,120 @@
+name: Sync upstream GDevelop release
+
+on:
+  schedule:
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact upstream release tag (empty means latest release)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: gdng-upstream-release-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Prepare upstream update PR
+    if: github.repository == 'AiratGaliev/GDNG'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout GDNG custom branch
+        uses: actions/checkout@v7
+        with:
+          ref: custom
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Fetch and merge upstream release
+        id: update
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          tag="$RELEASE_TAG_INPUT"
+          if [[ -z "$tag" ]]; then
+            tag="$(gh api repos/4ian/GDevelop/releases/latest --jq '.tag_name')"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "Unsupported release tag format: $tag" >&2
+            exit 1
+          fi
+
+          echo "Selected upstream release: $tag"
+          git remote add upstream https://github.com/4ian/GDevelop.git
+          git fetch --filter=blob:none upstream "refs/tags/$tag:refs/tags/$tag"
+
+          if git merge-base --is-ancestor "$tag" HEAD; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "GDNG custom already contains $tag."
+            exit 0
+          fi
+
+          branch="automation/upstream-$tag"
+          existing_pr="$(gh pr list --repo "$REPOSITORY" --base custom --head "$branch" --state open --json number --jq '.[0].number // empty')"
+
+          if [[ -n "$existing_pr" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "An update PR already exists: #$existing_pr"
+            exit 0
+          fi
+
+          # A closed PR may leave its old automation branch behind.
+          git push origin --delete "$branch" 2>/dev/null || true
+          git switch --create "$branch" custom
+
+          if ! git merge --no-edit --no-ff "$tag"; then
+            git merge --abort
+            echo "Upstream merge conflict for $tag. No branch or PR was published." >&2
+            exit 1
+          fi
+
+          git diff --check custom...HEAD
+          git push --set-upstream origin "$branch"
+
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create update pull request
+        if: steps.update.outputs.needed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ steps.update.outputs.branch }}
+          TAG: ${{ steps.update.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          gh pr create --repo "$REPOSITORY" --base custom --head "$BRANCH" --title "Update GDevelop upstream to $TAG" --body "## Upstream update
+
+          Merges the official GDevelop release [$TAG](https://github.com/4ian/GDevelop/releases/tag/$TAG) into GDNG's `custom` branch.
+
+          The downstream local-feature policy is retained and checked by the Windows build workflow.
+
+          Please review the complete diff and wait for validation before merging."
+
+      - name: Dispatch candidate Windows build
+        if: steps.update.outputs.needed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ steps.update.outputs.branch }}
+        run: |
+          gh workflow run build-portable-windows.yml --repo "$REPOSITORY" --ref "$BRANCH" -f source_ref="$BRANCH"

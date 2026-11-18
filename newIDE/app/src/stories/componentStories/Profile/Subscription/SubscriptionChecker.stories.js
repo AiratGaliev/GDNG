@@ -25,7 +25,7 @@ export const NotAuthenticatedTryMode = (): React.Node => {
 
   const onClick = () => {
     if (checkerRef.current) {
-      checkerRef.current.checkUserHasSubscription();
+      checkerRef.current.checkLocalFeatureAccess();
     }
   };
   return (
@@ -47,7 +47,7 @@ export const NotAuthenticatedMandatoryMode = (): React.Node => {
 
   const onClick = () => {
     if (checkerRef.current) {
-      checkerRef.current.checkUserHasSubscription();
+      checkerRef.current.checkLocalFeatureAccess();
     }
   };
   return (
@@ -70,7 +70,7 @@ export const UserWithNoSubscription = (): React.Node => {
 
   const onClick = () => {
     if (checkerRef.current) {
-      checkerRef.current.checkUserHasSubscription();
+      checkerRef.current.checkLocalFeatureAccess();
     }
   };
   return (
@@ -95,7 +95,7 @@ export const UserWithGoldSubscription = (): React.Node => {
 
   const onClick = () => {
     if (checkerRef.current) {
-      checkerRef.current.checkUserHasSubscription();
+      checkerRef.current.checkLocalFeatureAccess();
     }
   };
   return (

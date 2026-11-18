@@ -105,8 +105,8 @@ export default class LocalPreviewLauncher extends React.Component<
     numberOfWindows: 1,
     captureOptions: null,
   };
-  _networkPreviewSubscriptionChecker: ?SubscriptionCheckerInterface = null;
-  _hotReloadSubscriptionChecker: ?SubscriptionCheckerInterface = null;
+  _networkPreviewLocalFeatureChecker: ?SubscriptionCheckerInterface = null;
+  _hotReloadLocalFeatureChecker: ?SubscriptionCheckerInterface = null;
 
   _openPreviewBrowserWindow = () => {
     const {
@@ -209,7 +209,7 @@ export default class LocalPreviewLauncher extends React.Component<
               });
             }
 
-            setTimeout(() => this._checkSubscriptionForNetworkPreview());
+            setTimeout(() => this._checkLocalFeatureAccessForNetworkPreview());
           });
           ipcRenderer.on('local-network-ip', (event, ipAddress) => {
             this.setState({
@@ -439,9 +439,9 @@ export default class LocalPreviewLauncher extends React.Component<
       if (!previewOptions.isForInGameEdition) {
         if (
           this.state.hotReloadsCount % 16 === 0 &&
-          this._hotReloadSubscriptionChecker
+          this._hotReloadLocalFeatureChecker
         ) {
-          this._hotReloadSubscriptionChecker.checkUserHasSubscription();
+          this._hotReloadLocalFeatureChecker.checkLocalFeatureAccess();
         }
         this.setState(state => ({
           hotReloadsCount: state.hotReloadsCount + 1,
@@ -486,10 +486,10 @@ export default class LocalPreviewLauncher extends React.Component<
     return localPreviewDebuggerServer;
   }
 
-  _checkSubscriptionForNetworkPreview = (): any => {
-    if (!this._networkPreviewSubscriptionChecker) return true;
+  _checkLocalFeatureAccessForNetworkPreview = (): any => {
+    if (!this._networkPreviewLocalFeatureChecker) return true;
 
-    return this._networkPreviewSubscriptionChecker.checkUserHasSubscription();
+    return this._networkPreviewLocalFeatureChecker.checkLocalFeatureAccess();
   };
 
   render(): any {
@@ -504,7 +504,7 @@ export default class LocalPreviewLauncher extends React.Component<
       <React.Fragment>
         <SubscriptionChecker
           ref={subscriptionChecker =>
-            (this._networkPreviewSubscriptionChecker = subscriptionChecker)
+            (this._networkPreviewLocalFeatureChecker = subscriptionChecker)
           }
           onChangeSubscription={() =>
             this.setState({ networkPreviewDialogOpen: false })
@@ -517,7 +517,7 @@ export default class LocalPreviewLauncher extends React.Component<
         />
         <SubscriptionChecker
           ref={subscriptionChecker =>
-            (this._hotReloadSubscriptionChecker = subscriptionChecker)
+            (this._hotReloadLocalFeatureChecker = subscriptionChecker)
           }
           id="Hot reloading"
           title={

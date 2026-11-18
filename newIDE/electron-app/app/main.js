@@ -84,7 +84,7 @@ if (args['mcp'] || args['json']) {
   log.transports.stderr = stderrLogTransport;
 }
 
-log.info('GDevelop Electron app starting...');
+log.info('GDNG Electron app starting...');
 
 // Logs made with electron-logs can be found
 // on Linux: ~/.config/<app name>/log.log
@@ -116,7 +116,7 @@ app.commandLine.appendSwitch('force_high_performance_gpu');
 // Notifications on Microsoft Windows platforms show the app user model id.
 // If not set, defaults to `electron.app.{app.name}`.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('gdevelop.ide');
+  app.setAppUserModelId('com.gdng.editor');
 }
 
 // Single instance lock - prevents multiple Electron processes
@@ -869,11 +869,40 @@ app.on('ready', async function() {
     closeAllConnections(windowId);
   });
 
+  // Windows auto-updates are supported for NSIS installations, not portable ZIP
+  // distributions. Portable GDNG builds ship a marker from electron-builder.
+  const isGdngPortableBuild =
+    app.isPackaged &&
+    fs.existsSync(
+      path.join(process.resourcesPath, 'gdng-portable-mode.flag')
+    );
+
+  function sendUpdateStatus(status) {
+    log.info(status);
+    mainWindows.forEach(window => {
+      if (!window.isDestroyed()) {
+        window.webContents.send('update-status', status);
+      }
+    });
+  }
+
+  const reportPortableUpdateUnavailable = () => {
+    sendUpdateStatus({
+      message:
+        'This GDNG portable build is updated by downloading a new archive from GDNG GitHub Releases.',
+      status: 'update-not-available',
+    });
+  };
+
   // Track whether the current update check was triggered explicitly by the user,
   // so that errors are only surfaced to the user for manual checks.
   let isExplicitUpdateCheck = false;
 
   ipcMain.on('updates-check-and-download', (event, { explicit } = {}) => {
+    if (isGdngPortableBuild) {
+      reportPortableUpdateUnavailable();
+      return;
+    }
     // This will immediately download an update, then install when the
     // app quits.
     isExplicitUpdateCheck = !!explicit;
@@ -885,6 +914,10 @@ app.on('ready', async function() {
   });
 
   ipcMain.on('updates-check', (event, { explicit } = {}) => {
+    if (isGdngPortableBuild) {
+      reportPortableUpdateUnavailable();
+      return;
+    }
     isExplicitUpdateCheck = !!explicit;
     log.info('Starting check for updates (without auto-download)');
     autoUpdater.autoDownload = false;
@@ -894,17 +927,10 @@ app.on('ready', async function() {
   });
 
   ipcMain.on('updates-install-and-quit', () => {
+    if (isGdngPortableBuild) return;
     autoUpdater.quitAndInstall();
   });
 
-  function sendUpdateStatus(status) {
-    log.info(status);
-    mainWindows.forEach(window => {
-      if (!window.isDestroyed()) {
-        window.webContents.send('update-status', status);
-      }
-    });
-  }
   autoUpdater.on('checking-for-update', () => {
     sendUpdateStatus({
       message: 'Checking for update...',

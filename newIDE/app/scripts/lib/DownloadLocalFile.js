@@ -1,6 +1,7 @@
 // @ts-check
 const fs = require('fs');
 const {default: axios} = require('axios');
+const HttpsProxyAgent = require('https-proxy-agent');
 
 let temporaryFileCounter = 0;
 
@@ -17,9 +18,26 @@ let temporaryFileCounter = 0;
 const downloadLocalFile = async (url, outputPath) => {
   const temporaryPath = `${outputPath}.${process.pid}-${temporaryFileCounter++}.tmp`;
   try {
-    const response = await axios.get(url, {
+    // Axios 0.18 does not correctly tunnel HTTPS requests through the
+    // HTTPS_PROXY environment variable on modern Node.js. Use an explicit
+    // CONNECT agent only when a proxy is configured; direct requests keep
+    // Axios's default agent and behavior.
+    const proxyUrl =
+      process.env.https_proxy ||
+      process.env.HTTPS_PROXY ||
+      process.env.http_proxy ||
+      process.env.HTTP_PROXY;
+    const isHttpsUrl = url.startsWith('https:');
+    const requestOptions = {
       responseType: 'stream',
-    });
+      ...(isHttpsUrl && proxyUrl
+        ? {
+            httpsAgent: new HttpsProxyAgent(proxyUrl),
+            proxy: false,
+          }
+        : {}),
+    };
+    const response = await axios.get(url, requestOptions);
 
     await new Promise((resolve, reject) => {
       const writer = fs.createWriteStream(temporaryPath);

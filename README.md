@@ -1,5 +1,9 @@
 ![GDevelop logo](https://raw.githubusercontent.com/4ian/GDevelop/master/newIDE/GDevelop%20banner.png "GDevelop logo")
 
+## GDNG — GDevelop Next Generation
+
+GDNG is an independently maintained downstream fork of [GDevelop](https://github.com/4ian/GDevelop), with automated upstream release updates and a small set of local-editor feature changes. It is not an official GDevelop product. See [GDNG project documentation](docs/GDNG.md) for repository topology, local feature policy, update automation, and build instructions.
+
 GDevelop is a **full-featured, no-code, open-source** game development software. You can build **2D, 3D and multiplayer games** for mobile (iOS, Android), desktop and the web. GDevelop is designed to be fast and incredibly intuitive: make games using an easy-to-understand yet powerful event-based system and modular behaviors. Create with AI that assists or builds alongside you.
 
 ![The GDevelop editor when editing a game level](https://raw.githubusercontent.com/4ian/GDevelop/master/newIDE/GDevelop%20screenshot.png "The GDevelop editor when editing a 3D game level")
