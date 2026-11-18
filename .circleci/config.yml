@@ -587,6 +587,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
             cd newIDE\electron-app
+            # Keep the upstream workaround: npm install can stall on this lock file in Windows CI.
+            Remove-Item package-lock.json
             npm install --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cd ..\..
