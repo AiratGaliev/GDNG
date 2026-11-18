@@ -30,6 +30,17 @@ function extractJob(jobs, name) {
   return nextJob ? remainder.slice(0, nextJob.index) : remainder;
 }
 
+function extractWorkflow(workflows, name) {
+  const startPattern = new RegExp('^  ' + name + ':\\s*$', 'm');
+  const startMatch = startPattern.exec(workflows);
+  assert.ok(startMatch, 'Missing CircleCI workflow: ' + name);
+
+  const contentStart = startMatch.index + startMatch[0].length;
+  const remainder = workflows.slice(contentStart);
+  const nextWorkflow = /^  [A-Za-z0-9_-]+:\s*$/m.exec(remainder);
+  return nextWorkflow ? remainder.slice(0, nextWorkflow.index) : remainder;
+}
+
 const jobs = extractTopLevelSection(circleci, 'jobs');
 const workflows = extractTopLevelSection(circleci, 'workflows');
 
@@ -110,6 +121,30 @@ for (const workflowName of requiredWorkflows) {
     'Missing CircleCI workflow: ' + workflowName
   );
 }
+
+const buildsWorkflow = extractWorkflow(workflows, 'builds');
+assert.ok(buildsWorkflow.includes('      - build-gdevelop_js-wasm-only'));
+assert.ok(
+  buildsWorkflow.includes(
+    '      - build-linux:\n          requires:\n            - build-gdevelop_js-wasm-only'
+  ),
+  'The main Linux build must depend on the current-commit WASM artifact.'
+);
+assert.ok(
+  buildsWorkflow.includes(
+    '      - build-windows:\n          requires:\n            - build-gdevelop_js-wasm-only'
+  ),
+  'The main Windows build must depend on the current-commit WASM artifact.'
+);
+
+const dailyWorkflow = extractWorkflow(workflows, 'daily-end-to-end-tests');
+assert.ok(dailyWorkflow.includes('      - build-gdevelop_js-wasm-only'));
+assert.ok(
+  dailyWorkflow.includes(
+    '      - build-linux:\n          requires:\n            - build-gdevelop_js-wasm-only'
+  ),
+  'The daily Linux E2E workflow must build WASM before the editor package.'
+);
 
 const verificationJob = extractJob(jobs, 'verify-gdng-ci');
 assert.match(verificationJob, /node scripts\/verify-gdng-ci\.cjs/);
