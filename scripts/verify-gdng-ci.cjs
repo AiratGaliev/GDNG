@@ -1,3 +1,5 @@
+'use strict';
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,11 +9,12 @@ const read = relativePath =>
   fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 const circleci = read('.circleci/config.yml');
+const releaseWorkflow = read('.github/workflows/release-multiplatform.yml');
 
 function extractTopLevelSection(source, name) {
   const startPattern = new RegExp('^' + name + ':\\s*$', 'm');
   const startMatch = startPattern.exec(source);
-  assert.ok(startMatch, 'Missing top-level CircleCI section: ' + name);
+  assert.ok(startMatch, 'Missing top-level section: ' + name);
 
   const contentStart = startMatch.index + startMatch[0].length;
   const remainder = source.slice(contentStart);
@@ -19,32 +22,24 @@ function extractTopLevelSection(source, name) {
   return nextSection ? remainder.slice(0, nextSection.index) : remainder;
 }
 
-function extractJob(jobs, name) {
-  const startPattern = new RegExp('^  ' + name + ':\\s*$', 'm');
-  const startMatch = startPattern.exec(jobs);
-  assert.ok(startMatch, 'Missing CircleCI job: ' + name);
+function extractIndentedSection(source, name, indentation = 2) {
+  const spaces = ' '.repeat(indentation);
+  const startPattern = new RegExp('^' + spaces + name + ':\\s*$', 'm');
+  const startMatch = startPattern.exec(source);
+  assert.ok(startMatch, 'Missing section: ' + name);
 
   const contentStart = startMatch.index + startMatch[0].length;
-  const remainder = jobs.slice(contentStart);
-  const nextJob = /^  [A-Za-z0-9_-]+:\s*$/m.exec(remainder);
-  return nextJob ? remainder.slice(0, nextJob.index) : remainder;
+  const remainder = source.slice(contentStart);
+  const nextSection = new RegExp('^' + spaces + '[A-Za-z0-9_-]+:\\s*$', 'm').exec(
+    remainder
+  );
+  return nextSection ? remainder.slice(0, nextSection.index) : remainder;
 }
 
-function extractWorkflow(workflows, name) {
-  const startPattern = new RegExp('^  ' + name + ':\\s*$', 'm');
-  const startMatch = startPattern.exec(workflows);
-  assert.ok(startMatch, 'Missing CircleCI workflow: ' + name);
+const circleJobs = extractTopLevelSection(circleci, 'jobs');
+const circleWorkflows = extractTopLevelSection(circleci, 'workflows');
 
-  const contentStart = startMatch.index + startMatch[0].length;
-  const remainder = workflows.slice(contentStart);
-  const nextWorkflow = /^  [A-Za-z0-9_-]+:\s*$/m.exec(remainder);
-  return nextWorkflow ? remainder.slice(0, nextWorkflow.index) : remainder;
-}
-
-const jobs = extractTopLevelSection(circleci, 'jobs');
-const workflows = extractTopLevelSection(circleci, 'workflows');
-
-const requiredJobs = [
+for (const jobName of [
   'verify-gdng-ci',
   'build-macos',
   'build-linux',
@@ -52,92 +47,53 @@ const requiredJobs = [
   'build-gdevelop_js-debug-sanitizers-and-extra-checks',
   'build-gdcore-tests-sanitizers',
   'build-windows',
-  'publish-gdng-release',
   'run-cli-html5-export-linux',
   'build-storybook-for-visual-tests',
   'run-visual-monkey-tests-storybook-linux',
   'run-visual-monkey-tests-editor-linux',
-];
-for (const jobName of requiredJobs) extractJob(jobs, jobName);
+]) {
+  extractIndentedSection(circleJobs, jobName, 2);
+}
 
-const wasmBuild = extractJob(jobs, 'build-gdevelop_js-wasm-only');
+const wasmBuild = extractIndentedSection(
+  circleJobs,
+  'build-gdevelop_js-wasm-only',
+  2
+);
 assert.match(
   wasmBuild,
   /persist_to_workspace:[\s\S]*?paths:[\s\S]*?- Binaries\/embuild\/GDevelop\.js/,
-  'The WebAssembly build must persist its exact-commit output.'
+  'CircleCI branch validation must persist its exact-commit WebAssembly output.'
 );
 
 for (const jobName of ['build-linux', 'build-windows']) {
   assert.match(
-    extractJob(jobs, jobName),
+    extractIndentedSection(circleJobs, jobName, 2),
     /attach_workspace:/,
     jobName + ' must consume the same-commit WebAssembly workspace.'
   );
 }
 
-const macBuild = extractJob(jobs, 'build-macos');
-const linuxBuild = extractJob(jobs, 'build-linux');
-const windowsBuild = extractJob(jobs, 'build-windows');
-
-for (const [jobName, job] of [
-  ['macOS', macBuild],
-  ['Linux', linuxBuild],
-  ['Windows', windowsBuild],
-]) {
-  assert.match(job, /publish-release-assets:[\s\S]*?default: false/);
-}
-
-assert.match(macBuild, /condition: << parameters\.publish-release-assets >>/);
-assert.match(macBuild, /release-artifacts\/macos/);
-
-assert.match(linuxBuild, /gdng-\*\.zip/);
-assert.match(linuxBuild, /"<< parameters\.publish-release-assets >>" = "true"/);
-assert.match(linuxBuild, /release-artifacts\/linux/);
-
-assert.match(windowsBuild, /condition: << parameters\.publish-release-assets >>/);
-assert.match(windowsBuild, /release-artifacts\\windows/);
-assert.match(windowsBuild, /--win nsis --publish=never/);
-assert.match(windowsBuild, /--win zip --publish=never/);
-assert.doesNotMatch(windowsBuild, /appx|eSigner|ESIGNER/i);
-
-assert.match(circleci, /origin\/custom/);
-assert.match(circleci, /- custom/);
-assert.doesNotMatch(circleci, /aws-cli\/setup|aws s3 sync/i);
-
-const requiredWorkflows = [
-  'ci-validation',
-  'gdevelop_js-wasm-extra-checks',
-  'tests',
-  'builds',
-  'daily-end-to-end-tests',
-  'all-visual-tests',
-  'changed-visual-tests',
-  'gdng-release',
-];
-for (const workflowName of requiredWorkflows) {
-  assert.match(
-    workflows,
-    new RegExp('^  ' + workflowName + ':\\s*$', 'm'),
-    'Missing CircleCI workflow: ' + workflowName
-  );
-}
-
-const buildsWorkflow = extractWorkflow(workflows, 'builds');
-assert.ok(buildsWorkflow.includes('      - build-gdevelop_js-wasm-only'));
+const circleBuilds = extractIndentedSection(circleWorkflows, 'builds', 2);
+assert.ok(circleBuilds.includes('      - build-gdevelop_js-wasm-only'));
 assert.ok(
-  buildsWorkflow.includes(
+  circleBuilds.includes(
     '      - build-linux:\n          requires:\n            - build-gdevelop_js-wasm-only'
   ),
-  'The main Linux build must depend on the current-commit WASM artifact.'
+  'The main CircleCI Linux build must depend on current-commit WASM.'
 );
 assert.ok(
-  buildsWorkflow.includes(
+  circleBuilds.includes(
     '      - build-windows:\n          requires:\n            - build-gdevelop_js-wasm-only'
   ),
-  'The main Windows build must depend on the current-commit WASM artifact.'
+  'The main CircleCI Windows build must depend on current-commit WASM.'
 );
 
-const dailyWorkflow = extractWorkflow(workflows, 'daily-end-to-end-tests');
+const dailyWorkflow = extractIndentedSection(
+  circleWorkflows,
+  'daily-end-to-end-tests',
+  2
+);
 assert.ok(dailyWorkflow.includes('      - build-gdevelop_js-wasm-only'));
 assert.ok(
   dailyWorkflow.includes(
@@ -146,63 +102,174 @@ assert.ok(
   'The daily Linux E2E workflow must build WASM before the editor package.'
 );
 
-const verificationJob = extractJob(jobs, 'verify-gdng-ci');
-assert.match(verificationJob, /node scripts\/verify-gdng-ci\.cjs/);
-assert.match(verificationJob, /node scripts\/verify-gdng-local-policy\.cjs/);
-assert.match(verificationJob, /node --check scripts\/publish-gdng-release\.cjs/);
-
-const publisherJob = extractJob(jobs, 'publish-gdng-release');
-assert.match(publisherJob, /attach_workspace:/);
-assert.match(publisherJob, /node scripts\/publish-gdng-release\.cjs/);
-
-const releaseWorkflow = extractWorkflow(workflows, 'gdng-release');
-const publisherWorkflowJob = releaseWorkflow.slice(
-  releaseWorkflow.indexOf('      - publish-gdng-release:')
+assert.match(circleci, /origin\/custom/);
+assert.match(circleci, /- custom/);
+assert.doesNotMatch(circleci, /aws-cli\/setup|aws s3 sync/i);
+assert.doesNotMatch(
+  circleJobs,
+  /^  publish-gdng-release:/m,
+  'CircleCI must not run a competing release publisher.'
 );
+assert.doesNotMatch(
+  circleWorkflows,
+  /^  gdng-release:/m,
+  'GitHub Actions must be the only GDNG tag-release workflow.'
+);
+
+const circleVerifyJob = extractIndentedSection(circleJobs, 'verify-gdng-ci', 2);
+assert.match(circleVerifyJob, /node scripts\/verify-gdng-ci\.cjs/);
+assert.match(circleVerifyJob, /node scripts\/verify-gdng-local-policy\.cjs/);
+
+const requiredCircleWorkflows = [
+  'ci-validation',
+  'gdevelop_js-wasm-extra-checks',
+  'tests',
+  'builds',
+  'daily-end-to-end-tests',
+  'all-visual-tests',
+  'changed-visual-tests',
+];
+for (const workflowName of requiredCircleWorkflows) {
+  assert.ok(
+    new RegExp('^  ' + workflowName + ':\\s*$', 'm').test(circleWorkflows),
+    'Missing CircleCI workflow: ' + workflowName
+  );
+}
+
+// GitHub Actions is the authoritative release pipeline. Every platform package
+// consumes the same GDevelop.js artifact, and the publisher is gated by all
+// native, WebAssembly, IDE, CLI and visual checks.
+const ghaTriggers = extractTopLevelSection(releaseWorkflow, 'on');
+assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
+assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
+assert.match(ghaTriggers, /workflow_dispatch:/);
+
+const ghaJobs = extractTopLevelSection(releaseWorkflow, 'jobs');
+const requiredGhaJobs = [
+  'verify',
+  'build-wasm',
+  'core-sanitizers',
+  'wasm-debug-sanitizers',
+  'build-linux',
+  'build-macos',
+  'build-windows',
+  'cli-html5-export',
+  'build-storybook',
+  'visual-storybook',
+  'visual-editor',
+  'publish-release',
+  'validate-dispatch',
+];
+for (const jobName of requiredGhaJobs) {
+  extractIndentedSection(ghaJobs, jobName, 2);
+}
+
+const wasmJob = extractIndentedSection(ghaJobs, 'build-wasm', 2);
+assert.match(wasmJob, /emsdk install 3\.1\.21/);
+assert.match(wasmJob, /npm run build/);
+assert.match(wasmJob, /npm test -- --runInBand/);
+assert.match(wasmJob, /actions\/upload-artifact@/);
+assert.match(wasmJob, /name: gdng-exact-commit-wasm/);
+
+const verifyJob = extractIndentedSection(ghaJobs, 'verify', 2);
+assert.match(verifyJob, /needs: \[build-wasm\]/);
+assert.match(verifyJob, /actions\/download-artifact@/);
+assert.match(verifyJob, /node scripts\/verify-gdng-ci\.cjs/);
+assert.match(verifyJob, /react-app-rewired test/);
+assert.match(verifyJob, /flow status/);
+assert.match(verifyJob, /npm run check-types/);
+
+for (const [jobName, buildArg] of [
+  ['build-linux', '--linux'],
+  ['build-macos', '--mac'],
+]) {
+  const job = extractIndentedSection(ghaJobs, jobName, 2);
+  assert.match(job, /needs: \[verify, build-wasm\]/);
+  assert.match(job, /name: gdng-exact-commit-wasm/);
+  assert.ok(job.includes('npm run build -- ' + buildArg), jobName + ' must invoke its configured electron-builder target.');
+  assert.match(job, /actions\/upload-artifact@/);
+}
+const macosJob = extractIndentedSection(ghaJobs, 'build-macos', 2);
+assert.match(macosJob, /runs-on: macos-15-intel/);
+assert.doesNotMatch(macosJob, /runs-on: macos-14/);
+assert.match(releaseWorkflow, /^permissions:\s*\n  contents: read/m);
+const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
+assert.match(windowsJob, /needs: \[verify, build-wasm\]/);
+assert.match(windowsJob, /name: gdng-exact-commit-wasm/);
+assert.match(windowsJob, /--win nsis --publish=never/);
+assert.match(windowsJob, /--skip-app-build --win zip --publish=never/);
+assert.match(windowsJob, /name: gdng-release-windows/);
+
+for (const [jobName, requiredArg] of [
+  ['build-linux', '--linux'],
+  ['build-macos', '--mac'],
+  ['build-windows', '--win nsis'],
+]) {
+  const job = extractIndentedSection(ghaJobs, jobName, 2);
+  assert.ok(job.includes(requiredArg), jobName + ' is missing its platform build target.');
+}
+
+const cliJob = extractIndentedSection(ghaJobs, 'cli-html5-export', 2);
+assert.match(cliJob, /needs: \[build-linux\]/);
+assert.match(cliJob, /--zipPath=/);
+assert.match(cliJob, /xvfb-run/);
+
+const storybookJob = extractIndentedSection(ghaJobs, 'build-storybook', 2);
+assert.match(storybookJob, /name: gdng-exact-commit-wasm/);
+assert.match(storybookJob, /npm run build-storybook/);
+
+const storybookVisualJob = extractIndentedSection(
+  ghaJobs,
+  'visual-storybook',
+  2
+);
+assert.match(storybookVisualJob, /needs: \[build-storybook\]/);
+assert.match(storybookVisualJob, /node run\.js --suite=storybook/);
+
+const editorVisualJob = extractIndentedSection(ghaJobs, 'visual-editor', 2);
+assert.match(editorVisualJob, /needs: \[build-linux\]/);
+assert.match(editorVisualJob, /--suite=editor/);
+assert.match(editorVisualJob, /--gdevelop-zip=/);
+
+const publisherJob = extractIndentedSection(ghaJobs, 'publish-release', 2);
 for (const dependency of [
-  'release-visual-tests-storybook-build-all',
-  'release-visual-tests-storybook-all',
+  'verify',
+  'build-wasm',
+  'core-sanitizers',
+  'wasm-debug-sanitizers',
+  'build-linux',
+  'build-macos',
+  'build-windows',
+  'cli-html5-export',
+  'visual-storybook',
+  'visual-editor',
 ]) {
   assert.ok(
-    publisherWorkflowJob.includes('            - ' + dependency),
+    publisherJob.includes('- ' + dependency),
     'Release publisher must wait for ' + dependency
   );
 }
-assert.ok(releaseWorkflow.includes('ignore: /.*/'));
-assert.ok(
-  releaseWorkflow.includes('only: /^gdng-v[0-9]+\\.[0-9]+\\.[0-9]+$/'),
-  'Release workflow must accept only exact gdng-v<semver> tags.'
-);
-assert.match(releaseWorkflow, /- build-macos:\s*\n\s*publish-release-assets: true/);
-assert.match(releaseWorkflow, /- build-linux:[\s\S]*?publish-release-assets: true/);
-assert.match(releaseWorkflow, /- build-windows:[\s\S]*?publish-release-assets: true/);
+assert.match(publisherJob, /contents: write/);
+assert.match(publisherJob, /GITHUB_TOKEN:/);
+assert.match(publisherJob, /node scripts\/publish-gdng-release\.cjs/);
 
-for (const requiredJob of [
-  'verify-gdng-ci',
-  'build-macos',
-  'build-linux',
-  'build-windows',
-  'build-gdcore-tests-sanitizers',
-  'build-gdevelop_js-debug-sanitizers-and-extra-checks',
-  'release-cli-html5-export-linux',
-  'release-visual-monkey-tests-editor-linux',
-  'release-visual-tests-storybook-build-all',
-  'release-visual-tests-storybook-all',
-  'publish-gdng-release',
-]) {
-  assert.ok(
-    releaseWorkflow.includes(requiredJob),
-    'GitHub Release workflow must include ' + requiredJob
-  );
-}
+const dispatchValidation = extractIndentedSection(
+  ghaJobs,
+  'validate-dispatch',
+  2
+);
+assert.match(dispatchValidation, /--validate-only/);
+assert.doesNotMatch(publisherJob, /GDNG_GITHUB_TOKEN/);
 
 const publisher = read('scripts/publish-gdng-release.cjs');
-assert.match(publisher, /GDNG_GITHUB_TOKEN/);
+assert.match(publisher, /GITHUB_TOKEN/);
+assert.match(publisher, /GITHUB_REF_NAME/);
 assert.match(publisher, /requireArchitecturePair/);
 assert.match(publisher, /--validate-only/);
 assert.match(publisher, /gdng-v' \+ version/);
 assert.match(publisher, /draft: false/);
 assert.match(publisher, /SHA256SUMS\.txt/);
+assert.doesNotMatch(publisher, /circleBuildUrl/);
 
 const editorConfig = require(
   path.join(root, 'newIDE/electron-app/electron-builder-config.js')
@@ -229,9 +296,9 @@ assert.match(cliExport, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdn
 assert.doesNotMatch(cliExport, /S3|s3/);
 
 const windowsFallback = read('.github/workflows/build-portable-windows.yml');
-const triggers = extractTopLevelSection(windowsFallback, 'on');
-assert.match(triggers, /workflow_dispatch:/);
-assert.doesNotMatch(triggers, /^  push:/m);
+const fallbackTriggers = extractTopLevelSection(windowsFallback, 'on');
+assert.match(fallbackTriggers, /workflow_dispatch:/);
+assert.doesNotMatch(fallbackTriggers, /^  push:/m);
 
 const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
 assert.match(upstreamSync, /git merge --abort/);
@@ -243,4 +310,4 @@ assert.ok(
   'Upstream synchronization must run the GDNG CI verifier before pushing a merge candidate.'
 );
 
-console.log('GDNG CI and release preservation verification passed.');
+console.log('GDNG CI and GitHub Release preservation verification passed.');

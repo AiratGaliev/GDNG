@@ -1,4 +1,4 @@
-# GDNG — GDevelop Next Generation
+# GDNG â€” GDevelop Next Generation
 
 GDNG is an independently maintained downstream fork of [GDevelop](https://github.com/4ian/GDevelop). It keeps the upstream editor, Core, GDJS runtime and built-in extensions while maintaining a small set of local-editor changes.
 
@@ -123,31 +123,27 @@ Keep upstream license files and copyright notices intact. The Core, game engine,
 
 ## CI and platform builds
 
-The primary multi-platform pipeline remains the upstream CircleCI configuration at .circleci/config.yml. It retains the upstream jobs for WebAssembly, native Core sanitizers, IDE/GDJS checks and desktop packaging:
+CircleCI remains the upstream-derived branch validation pipeline at `.circleci/config.yml`. It retains the jobs for current-commit WebAssembly builds, Core sanitizer checks, IDE/GDJS validation, desktop packaging, CLI export and visual tests. The `custom` branch is the downstream primary branch. CircleCI is **not** configured as a GitHub Release publisher, so it cannot race with the release workflow or overwrite release assets.
 
-- macOS builds the engine and editor on a macOS runner.
-- Linux and Windows consume the exact libGD.js/libGD.wasm build from build-gdevelop_js-wasm-only through a CircleCI workspace.
-- Linux produces the configured AppImage, DEB and portable ZIP targets.
-- Windows produces an unsigned NSIS installer and portable ZIP.
-- CLI HTML5 export and packaged-editor visual tests use the Linux ZIP produced in the same CircleCI workflow.
+### Authoritative multi-platform GitHub Release workflow
 
-The fork-specific changes are intentionally limited: the upstream AWS S3 deployment steps and AWS CLI orb are removed; the current WebAssembly build is passed between jobs by CircleCI workspace instead. The eSigner certificate bootstrap, code-signing commands, Microsoft Store AppX build and obsolete AppVeyor trigger are removed. No upstream AWS credentials, signing secrets or Microsoft Store publisher identity are required. Unsigned packages are uploaded as CircleCI artifacts.
+`.github/workflows/release-multiplatform.yml` is the only workflow that publishes GDNG versioned releases. It is triggered by pushing a tag matching `gdng-v*`, and then verifies that the tag exactly matches `newIDE/electron-app/app/package.json`.
 
-CircleCI branch filters use custom as the fork primary branch. The scheduled end-to-end workflow builds a fresh Linux package before running CLI export and packaged-editor tests; it does not attempt to download an upstream master/latest artifact. Branch-scoped visual checks retain the upstream Storybook suite. The packaged-editor suite runs only when a local GDNG Linux package is available.
+The release graph performs these steps:
 
-.semaphore/semaphore.yml remains the fast validation pipeline (Flow, TypeScript, formatting, lint and tests). It intentionally does not build the C++/WebAssembly engine, so its results are preliminary; the CircleCI build is the authoritative full-engine and packaging validation. .travis.yml retains the upstream full-test configuration on the custom branch. appveyor.yml is retained only as the deprecated upstream reference; CircleCI owns the Windows build.
+1. Builds `GDevelop.js` and `libGD.wasm` once from the tagged commit using Emscripten 3.1.21. The exact artifact is passed to all three desktop build jobs; no prebuilt upstream or S3 binary is used.
+2. Builds Windows x64 (unsigned NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP), and macOS universal (DMG and ZIP). The macOS job uses the supported `macos-15-intel` GitHub-hosted runner; the retired `macos-14` label is not used.
+3. Runs the IDE unit suite, Flow, GDJS TypeScript checks, GDevelop.js tests, native GDCore ASan/UBSan tests, and the debug-sanitizers/clang-tidy GDevelop.js checks.
+4. Runs Linux CLI HTML5 export against the just-built Linux ZIP, the complete Storybook visual suite, and the packaged-editor visual suite against that same Linux ZIP.
+5. Uploads the platform outputs as workflow artifacts. Only after every required job succeeds does `publish-release` download all three platform artifacts and invoke `scripts/publish-gdng-release.cjs`.
 
-The GitHub Actions workflow .github/workflows/build-portable-windows.yml is a manually dispatched Windows fallback used by upstream-release automation. It is not the primary release matrix. The multi-platform artifact set is produced and published by CircleCI.
+The publisher rejects missing architectures, empty or duplicate assets, and mismatched tags. It generates `gdng-release-metadata.json` and `SHA256SUMS.txt`, creates a GitHub draft Release, uploads all binaries, and publishes the draft only after every upload succeeds. It never overwrites an already published release or deletes assets from a draft that it does not own.
 
-### GitHub Release publishing
+A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. It **does not** create or publish a release. The workflow also runs this validation automatically when commits are pushed to `ci/full-multiplatform-builds`; use that run to validate the complete matrix before merging and creating the real version tag.
 
-A tag matching `gdng-v<version>` triggers the dedicated `gdng-release` CircleCI workflow. It builds Windows x64 (NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP) and a universal macOS build (DMG and ZIP). The release is not published until native Core checks, WebAssembly checks, the Linux CLI HTML5 export smoke test, the complete Storybook visual suite and the packaged-editor visual test have all passed.
+GitHub Actions uses its repository-scoped `GITHUB_TOKEN` with `contents: write`; no CircleCI project activation, PAT or manually stored release secret is required. The release binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear; signing and notarization can be added later with GDNG-owned certificates.
 
-Platform jobs persist their output into the CircleCI workspace. The final `publish-gdng-release` job checks that every expected artifact exists, writes `gdng-release-metadata.json` and `SHA256SUMS.txt`, uploads the files to a GitHub draft release, and publishes it only after all uploads succeed. A failed upload leaves the release as a draft so it cannot be mistaken for a complete build. A published release is never overwritten.
-
-Before tagging, enable the `AiratGaliev/GDNG` project in CircleCI and add `GDNG_GITHUB_TOKEN` under **Project Settings → Environment Variables**. Use a fine-grained GitHub token restricted to this repository with **Contents: Read and write**. GitHub documents this permission for creating releases and managing release assets; if the tagged commit changes workflow files relative to the repository's default branch, the token also needs **Workflows: Read and write**. See [GitHub's release API permission requirements](https://docs.github.com/en/rest/releases/releases#fine-grained-access-tokens-for-create-a-release). Never put the token in the repository or CircleCI config.
-
-For the current package version, after the CircleCI project and token are configured, create and push the matching tag from `custom`:
+For the current upstream release `v5.6.287`, the editor package version is `5.6.287`. After merging the release workflow into `custom` and validating the full manual matrix, publish the matching GDNG tag:
 
 ```powershell
 git switch custom
@@ -156,10 +152,12 @@ git tag gdng-v5.6.287
 git push origin gdng-v5.6.287
 ```
 
-The tag must match `newIDE/electron-app/app/package.json`. The publisher rejects a mismatched tag, missing platform artifacts, duplicate asset names, and attempts to overwrite an already published release. Regular branch builds continue to store artifacts in CircleCI; they do not create or publish GitHub Releases.
+GitHub Actions will then build from that exact tag and publish the Release automatically. Do not tag before the PR has merged and the manual validation run has passed.
 
-**Signing status:** the CI artifacts are unsigned. Windows SmartScreen and macOS Gatekeeper may display warnings. Signing/notarization can be added later with GDNG-owned certificates and secrets; upstream credentials must never be reused.
+### Upstream merge protection
 
-### Upstream CI preservation
+`.github/workflows/sync-upstream-release.yml` continues to prepare PRs only; it never auto-merges upstream into `custom`. On a Git conflict it aborts before pushing a candidate branch. After a conflict-free merge it runs `scripts/verify-gdng-ci.cjs` before publishing the candidate branch.
 
-`scripts/verify-gdng-ci.cjs` checks the fork-owned CircleCI job graph, WebAssembly workspace hand-off, GDNG Linux archive naming, unsigned Windows targets, release target matrix and manual-only Windows fallback. Upstream release synchronization runs this verifier after the Git merge and before it pushes an update branch. This is a fail-closed guard: if upstream changes CI without producing a textual conflict but breaks a required GDNG build path, the sync stops before creating a pull request. A direct conflict in `.circleci/config.yml` also stops the merge before any branch is published.
+The verifier protects both CI systems: it checks the CircleCI branch jobs and WebAssembly workspace dependencies, and it checks the GitHub release workflow's platform jobs, exact-commit WASM hand-off, tests, publisher dependencies and validation-only dispatch. This is intended to stop an upstream update that would silently remove GDNG's release matrix or its safety gates.
+
+`.github/workflows/build-portable-windows.yml` remains a manual Windows fallback for troubleshooting. It is not a release workflow and does not publish GitHub Releases.

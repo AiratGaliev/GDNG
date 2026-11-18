@@ -12,11 +12,25 @@ const version = require(path.join(
   'newIDE/electron-app/app/package.json'
 )).version;
 const expectedTag = 'gdng-v' + version;
-const tag = process.env.CIRCLE_TAG;
-const token = process.env.GDNG_GITHUB_TOKEN;
+const tag =
+  process.env.GDNG_RELEASE_TAG ||
+  process.env.CIRCLE_TAG ||
+  process.env.GITHUB_REF_NAME;
+const token = process.env.GDNG_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
 const validateOnly = process.argv.includes('--validate-only');
-const sourceCommit = process.env.CIRCLE_SHA1 || 'unknown';
-const circleBuildUrl = process.env.CIRCLE_BUILD_URL || '';
+const sourceCommit =
+  process.env.CIRCLE_SHA1 || process.env.GITHUB_SHA || 'unknown';
+const buildUrl =
+  process.env.CIRCLE_BUILD_URL ||
+  (process.env.GITHUB_SERVER_URL &&
+  process.env.GITHUB_REPOSITORY &&
+  process.env.GITHUB_RUN_ID
+    ? process.env.GITHUB_SERVER_URL +
+      '/' +
+      process.env.GITHUB_REPOSITORY +
+      '/actions/runs/' +
+      process.env.GITHUB_RUN_ID
+    : 'CI');
 
 if (!tag || tag !== expectedTag) {
   throw new Error(
@@ -25,7 +39,7 @@ if (!tag || tag !== expectedTag) {
 }
 if (!token && !validateOnly) {
   throw new Error(
-    'GDNG_GITHUB_TOKEN is missing. Configure a GitHub token with contents:write in CircleCI.'
+    'GitHub release token is missing. Provide GITHUB_TOKEN with contents:write or GDNG_GITHUB_TOKEN.'
   );
 }
 
@@ -90,7 +104,7 @@ function githubRequest(method, endpoint, payload) {
   const headers = {
     Accept: 'application/vnd.github+json',
     Authorization: 'Bearer ' + token,
-    'User-Agent': 'GDNG-CircleCI-release-publisher',
+    'User-Agent': 'GDNG-release-publisher',
     'X-GitHub-Api-Version': '2022-11-28',
   };
   if (body) {
@@ -159,7 +173,7 @@ function uploadAsset(releaseId, filePath) {
           Authorization: 'Bearer ' + token,
           'Content-Length': stat.size,
           'Content-Type': 'application/octet-stream',
-          'User-Agent': 'GDNG-CircleCI-release-publisher',
+          'User-Agent': 'GDNG-release-publisher',
           'X-GitHub-Api-Version': '2022-11-28',
         },
       },
@@ -258,7 +272,7 @@ async function main() {
         tag,
         repository,
         sourceCommit,
-        circleBuildUrl,
+        buildUrl,
         builtAtUtc,
         signed: false,
         platforms: {
@@ -345,7 +359,7 @@ async function main() {
         '',
         'All binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear.',
         '',
-        'Build: ' + (circleBuildUrl || 'CircleCI'),
+        'Build: ' + buildUrl,
       ].join('\n'),
     });
   }

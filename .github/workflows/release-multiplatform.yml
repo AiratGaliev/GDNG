@@ -1,0 +1,656 @@
+name: Build and publish GDNG cross-platform release
+
+on:
+  push:
+    branches:
+      - ci/full-multiplatform-builds
+    tags:
+      - 'gdng-v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact GDNG release tag to validate
+        required: true
+        default: gdng-v5.6.287
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gdng-release-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+
+jobs:
+  verify:
+    name: IDE tests, types and GDNG policies
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            newIDE/electron-app/package-lock.json
+            GDJS/package-lock.json
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+      - name: Install IDE and GDJS dependencies
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Verify GDNG CI and packaging invariants
+        run: |
+          node scripts/verify-gdng-local-policy.cjs
+          node scripts/verify-gdng-ci.cjs
+      - name: Run complete IDE unit test suite
+        working-directory: newIDE/app
+        run: ./node_modules/.bin/react-app-rewired test --env=node --watchAll=false --runInBand
+      - name: Run GDJS TypeScript checks
+        working-directory: GDJS
+        run: npm run check-types
+      - name: Run Flow type checking
+        working-directory: newIDE/app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/flow start --max-workers 4 --wait --no-auto-restart
+          trap './node_modules/.bin/flow stop >/dev/null 2>&1 || true' EXIT
+          ./node_modules/.bin/flow status --timeout 600000
+
+  build-wasm:
+    name: Build exact-commit GDevelop.js / WebAssembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Emscripten system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+      - name: Install Emscripten 3.1.21
+        run: |
+          git clone https://github.com/juj/emsdk.git
+          ./emsdk/emsdk install 3.1.21
+          ./emsdk/emsdk activate 3.1.21
+      - name: Install GDevelop.js dependencies
+        working-directory: GDevelop.js
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm install --no-audit --no-fund
+      - name: Build GDevelop.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CMAKE_C_COMPILER_LAUNCHER=ccache
+          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          source emsdk/emsdk_env.sh
+          cd GDevelop.js
+          npm run build
+          cd ..
+          test -s Binaries/embuild/GDevelop.js/libGD.js
+          test -s Binaries/embuild/GDevelop.js/libGD.wasm
+      - name: Run GDevelop.js tests
+        working-directory: GDevelop.js
+        shell: bash
+        run: |
+          source ../emsdk/emsdk_env.sh
+          npm test -- --runInBand
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js/**
+          if-no-files-found: error
+          retention-days: 2
+
+  core-sanitizers:
+    name: GDCore tests with ASan and UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang ccache libstdc++-12-dev
+      - name: Configure GDCore with address and undefined-behavior sanitizers
+        run: |
+          mkdir -p .build-tests-asan
+          cd .build-tests-asan
+          cmake \
+            -DBUILD_GDJS=FALSE \
+            -DBUILD_EXTENSIONS=FALSE \
+            -DBUILD_TESTS=TRUE \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DUSE_SANITIZERS="address,undefined" \
+            -DCMAKE_CXX_COMPILER="$(which clang++)" \
+            -DCMAKE_C_COMPILER="$(which clang)" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ..
+      - name: Build GDCore_tests
+        run: cmake --build .build-tests-asan --target GDCore_tests --parallel 4
+      - name: Run GDCore_tests with sanitizers
+        shell: bash
+        run: |
+          cd .build-tests-asan
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1
+          export UBSAN_OPTIONS=print_stacktrace=1
+          Core/GDCore_tests
+
+  wasm-debug-sanitizers:
+    name: GDevelop.js debug sanitizers and clang-tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install build and clang-tidy dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y clang-tidy-19
+      - name: Install Emscripten 3.1.21
+        run: |
+          git clone https://github.com/juj/emsdk.git
+          ./emsdk/emsdk install 3.1.21
+          ./emsdk/emsdk activate 3.1.21
+      - name: Install GDevelop.js dependencies
+        working-directory: GDevelop.js
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm install --no-audit --no-fund
+      - name: Build debug-sanitizers variant
+        working-directory: GDevelop.js
+        shell: bash
+        run: |
+          source ../emsdk/emsdk_env.sh
+          npm run build -- --variant=debug-sanitizers
+      - name: Run clang-tidy
+        working-directory: GDevelop.js
+        run: npm run lint
+      - name: Run GDevelop.js tests under ASan
+        working-directory: GDevelop.js
+        env:
+          ASAN_OPTIONS: malloc_context_size=5
+        run: npm run test -- --maxWorkers=4
+
+  build-linux:
+    name: Linux x64 and arm64 packages
+    needs: [verify, build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y icnsutils graphicsmagick rsync
+      - name: Configure and install editor dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+          export REQUIRES_EXACT_LIBGD_JS_VERSION=true
+          cd newIDE/app
+          npm install --no-audit --no-fund
+          cd ../electron-app
+          npm install --no-audit --no-fund
+      - name: Build Linux AppImage, DEB and ZIP for x64 and arm64
+        working-directory: newIDE/electron-app
+        run: npm run build -- --linux --publish=never
+      - name: Stage and verify Linux release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf newIDE/electron-app/dist/linux-unpacked newIDE/electron-app/dist/linux-arm64-unpacked
+          mkdir -p release-artifacts/linux
+          find newIDE/electron-app/dist -maxdepth 1 -type f \( -iname '*.AppImage' -o -iname '*.deb' -o -iname '*.zip' \) -exec cp {} release-artifacts/linux/ \;
+          for ext in AppImage deb zip; do
+            count="$(find release-artifacts/linux -maxdepth 1 -type f -iname "*.$ext" | wc -l)"
+            test "$count" -eq 2 || { echo "Expected x64+arm64 $ext outputs, found $count" >&2; exit 1; }
+            find release-artifacts/linux -maxdepth 1 -type f -iname "*.$ext" | grep -qi arm64
+          done
+          test -s "$(find release-artifacts/linux -maxdepth 1 -type f -iname '*.zip' ! -iname '*arm64*' -print -quit)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 2
+
+  build-macos:
+    name: macOS universal DMG and ZIP
+    needs: [verify, build-wasm]
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    env:
+      CSC_FOR_PULL_REQUEST: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20.14.0
+      - name: Configure and install editor dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python3 -m pip install --upgrade setuptools
+          export REQUIRES_EXACT_LIBGD_JS_VERSION=true
+          cd newIDE/app
+          npm install --no-audit --no-fund
+          cd ../electron-app
+          npm install --no-audit --no-fund
+      - name: Build universal macOS DMG and ZIP
+        working-directory: newIDE/electron-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=7168
+        run: npm run build -- --mac --publish=never
+      - name: Stage and verify macOS release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf newIDE/electron-app/dist/mac-universal/GDNG.app
+          mkdir -p release-artifacts/macos
+          find newIDE/electron-app/dist -maxdepth 1 -type f \( -iname '*.dmg' -o -iname '*.zip' \) -exec cp {} release-artifacts/macos/ \;
+          test -n "$(find release-artifacts/macos -maxdepth 1 -type f -iname '*.dmg' -print -quit)"
+          test -n "$(find release-artifacts/macos -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 2
+
+  build-windows:
+    name: Windows x64 NSIS installer and portable ZIP
+    needs: [verify, build-wasm]
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Configure build environment
+        shell: pwsh
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify GDNG local packaging policy
+        run: node scripts/verify-gdng-local-policy.cjs
+      - name: Install editor dependencies and import exact-commit GDJS/Core
+        shell: pwsh
+        run: |
+          $env:REQUIRES_EXACT_LIBGD_JS_VERSION = 'true'
+          Push-Location newIDE/app
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Install Electron application dependencies
+        shell: pwsh
+        run: |
+          $env:REQUIRES_EXACT_LIBGD_JS_VERSION = 'true'
+          Push-Location newIDE/electron-app
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Build unsigned NSIS installer
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            node scripts/build.js --win nsis --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Build unsigned portable ZIP
+        shell: pwsh
+        run: |
+          $env:GD_PORTABLE_BUILD = 'true'
+          Push-Location newIDE/electron-app
+          try {
+            node scripts/build.js --skip-app-build --win zip --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Stage and verify Windows release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts\windows | Out-Null
+          Get-ChildItem newIDE\electron-app\dist -File |
+            Where-Object { $_.Extension -in '.exe', '.zip' } |
+            Copy-Item -Destination release-artifacts\windows
+          if (-not (Get-ChildItem release-artifacts\windows -Filter '*.exe' -File)) {
+            throw 'Missing Windows NSIS installer.'
+          }
+          if (-not (Get-ChildItem release-artifacts\windows -Filter '*.zip' -File)) {
+            throw 'Missing Windows portable ZIP.'
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 2
+
+  cli-html5-export:
+    name: Linux CLI HTML5 export smoke test
+    needs: [build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Electron runtime and CLI smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+          mkdir -p cli-html5-export-deps
+          cd cli-html5-export-deps
+          npm init -y
+          npm install --no-audit --no-fund axios@^0.18.1 minimist@^1.2.5 shelljs@^0.8.4 adm-zip@^0.5.10
+      - name: Export example game with the locally built GDNG binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
+          zip_path="$(find release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            node newIDE/app/scripts/test-portable-cli-export.js \
+              --zipPath="$PWD/$zip_path" \
+              --example=3d-platformer \
+              --workDir=./cli-html5-export-work \
+              --artifactsDir=./cli-html5-export-artifacts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-cli-export-test-results
+          path: cli-html5-export-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-storybook:
+    name: Build Storybook for visual tests
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install editor dependencies
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Build Storybook
+        working-directory: newIDE/app
+        run: npm run build-storybook
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-storybook
+          path: newIDE/app/build-storybook
+          if-no-files-found: error
+          retention-days: 2
+
+  visual-storybook:
+    name: Complete Storybook visual suite
+    needs: [build-storybook]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-storybook
+          path: newIDE/app/build-storybook
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Chrome runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0
+      - name: Install visual test dependencies and Chromium
+        working-directory: newIDE/visual-tests
+        run: |
+          npm install --no-audit --no-fund
+          node node_modules/puppeteer/install.mjs
+      - name: Run all Storybook visual tests
+        working-directory: newIDE/visual-tests
+        run: node run.js --suite=storybook --artifacts-dir=/tmp/visual-tests-artifacts --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-storybook-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  visual-editor:
+    name: Packaged Linux editor visual suite
+    needs: [build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Electron runtime libraries and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+      - name: Install visual test dependencies
+        working-directory: newIDE/visual-tests
+        run: npm install --no-audit --no-fund
+      - name: Run real-editor visual tests against the exact release package
+        working-directory: newIDE/visual-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="$(find ../../release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1500x1000x24" \
+            node run.js --suite=editor \
+              --gdevelop-zip="$zip_path" \
+              --artifacts-dir=/tmp/visual-tests-artifacts \
+              --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-editor-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish-release:
+    name: Publish verified cross-platform GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/gdng-v')
+    needs:
+      - verify
+      - build-wasm
+      - core-sanitizers
+      - wasm-debug-sanitizers
+      - build-linux
+      - build-macos
+      - build-windows
+      - cli-html5-export
+      - visual-storybook
+      - visual-editor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+      - name: Publish verified release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/publish-gdng-release.cjs
+
+  validate-dispatch:
+    name: Validate all platform artifacts (no publication)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    needs:
+      - verify
+      - build-wasm
+      - core-sanitizers
+      - wasm-debug-sanitizers
+      - build-linux
+      - build-macos
+      - build-windows
+      - cli-html5-export
+      - visual-storybook
+      - visual-editor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+      - name: Determine the tag to validate for this run
+        id: release-version
+        shell: bash
+        run: |
+          version="$(node -p 'require("./newIDE/electron-app/app/package.json").version')"
+          echo "tag=gdng-v$version" >> "$GITHUB_OUTPUT"
+      - name: Validate the release tag and every platform artifact
+        env:
+          GDNG_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || steps.release-version.outputs.tag }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/publish-gdng-release.cjs --validate-only
