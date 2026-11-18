@@ -186,6 +186,12 @@ assert.ok(
     ghaJobs.includes('run: circleci config validate .circleci/config.yml'),
   'GitHub Actions must validate the upstream-derived CircleCI configuration.'
 );
+assert.ok(
+  releaseWorkflow.includes(
+    "cancel-in-progress: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}"
+  ),
+  'A newer branch-validation push must supersede older runs without cancelling tag/manual runs.'
+);
 const requiredGhaJobs = [
   'verify',
   'build-wasm',
