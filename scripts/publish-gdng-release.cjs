@@ -354,6 +354,10 @@ async function main() {
     'Uploading ' + assets.length + ' verified assets to draft release ' + tag + '.'
   );
   for (const asset of assets) {
+    console.log(
+      'Uploading ' + path.basename(asset.file) + ' (' +
+      fs.statSync(asset.file).size + ' bytes)...'
+    );
     const uploaded = await uploadAsset(release.id, asset.file);
     console.log('Uploaded ' + uploaded.name + ' (' + uploaded.size + ' bytes).');
   }

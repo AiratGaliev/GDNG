@@ -184,4 +184,14 @@ const triggers = extractTopLevelSection(windowsFallback, 'on');
 assert.match(triggers, /workflow_dispatch:/);
 assert.doesNotMatch(triggers, /^  push:/m);
 
+const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
+assert.match(upstreamSync, /git merge --abort/);
+assert.match(upstreamSync, /grep -Fxq '\.circleci\/config\.yml'/);
+const syncVerifierIndex = upstreamSync.indexOf('node scripts/verify-gdng-ci.cjs');
+const syncPushIndex = upstreamSync.indexOf('git push --set-upstream origin "$branch"');
+assert.ok(
+  syncVerifierIndex >= 0 && syncPushIndex > syncVerifierIndex,
+  'Upstream synchronization must run the GDNG CI verifier before pushing a merge candidate.'
+);
+
 console.log('GDNG CI and release preservation verification passed.');
