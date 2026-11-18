@@ -271,13 +271,6 @@ jobs:
       # What the desktop app is made of (see newIDE/electron-app/scripts/app-build.js
       # and electron-builder-config.js).
       - persist_to_workspace:
-          root: newIDE/app
-          paths:
-            - build
-            - resources/GDJS
-            - public/libGD.js
-            - public/libGD.wasm
-      - persist_to_workspace:
           root: .
           paths:
             - newIDE/app/build
@@ -1029,10 +1022,103 @@ workflows:
     jobs:
       - build-gdcore-tests-sanitizers
 
-builds workflow replacement  # Daily end-to-end tests running against the latest portable build uploaded
+  builds:
+    jobs:
+      - build-gdevelop_js-wasm-only
+      - build-macos:
+          # The macOS version builds by itself GDevelop.js
+          # (so we verify we can build it on macOS).
+          # requires:
+          #   - build-gdevelop_js-wasm-only
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+      - build-app-for-desktop:
+          requires:
+            - build-gdevelop_js-wasm-only
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+      - build-linux:
+          requires:
+            - build-app-for-desktop
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+      # Right after build-linux, run the CLI HTML5 export against the
+      # portable zip it just produced (via the attached workspace).
+      - run-cli-html5-export-linux:
+          name: cli-html5-export-linux
+          use-local-build: true
+          requires:
+            - build-linux
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+      # Right after build-linux, run the visual monkey tests of the real
+      # editor against the portable zip it just produced.
+      - run-visual-monkey-tests-editor-linux:
+          name: visual-monkey-tests-editor-linux
+          use-local-build: true
+          requires:
+            - build-linux
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+      - build-windows:
+          requires:
+            - build-app-for-desktop
+          filters:
+            branches:
+              only:
+                - custom
+                - stable
+                - /experimental-build.*/
+
+  # Daily end-to-end tests running against the latest portable build uploaded
   # using the locally built GDNG Linux package: the CLI HTML5 export, and the visual monkey tests
   # manipulating the editor. Runs every day at 16:00 UTC (4pm UTC).
-daily workflow replacement  # On custom/stable (or when explicitly asked for): run all Storybook visual
+  daily-end-to-end-tests:
+    triggers:
+      - schedule:
+          cron: "0 16 * * *"
+          filters:
+            branches:
+              only:
+                - custom
+    jobs:
+      - build-gdevelop_js-wasm-only
+      - build-app-for-desktop:
+          requires:
+            - build-gdevelop_js-wasm-only
+      - build-linux:
+          requires:
+            - build-app-for-desktop
+      - run-cli-html5-export-linux:
+          use-local-build: true
+          requires:
+            - build-linux
+      - run-visual-monkey-tests-editor-linux:
+          use-local-build: true
+          requires:
+            - build-linux
+
+  # On custom/stable (or when explicitly asked for): run all Storybook visual
   # monkey tests. The packaged-editor suite runs in the main build workflow.
   all-visual-tests:
     when:
