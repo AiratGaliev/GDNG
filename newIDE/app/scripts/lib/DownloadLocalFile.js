@@ -2,13 +2,11 @@
 const fs = require('fs');
 const {default: axios} = require('axios');
 const httpsProxyAgentModule = require('https-proxy-agent');
-/**
- * https-proxy-agent@5 exports a constructable CommonJS class. Its legacy
- * declaration is surfaced as a call signature by this project's TS 4.1
- * checker, so describe the actual runtime constructor contract explicitly.
- * @type {new (proxy: string) => import('https').Agent}
- */
-const HttpsProxyAgent = httpsProxyAgentModule;
+// The v5 CommonJS export is constructable at runtime. Narrow it here because
+// the legacy declaration resolves to a call signature in this TS 4.1 project.
+const HttpsProxyAgent = /** @type {new (proxy: string) => import('https').Agent} */ (
+  httpsProxyAgentModule
+);
 
 let temporaryFileCounter = 0;
 
