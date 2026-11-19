@@ -22,7 +22,7 @@ git branch --set-upstream-to=origin/main main
 git remote set-head origin -a
 ```
 
-The local checkout is expected at `C:\Users\Airat\WebstormProjects\GDNG`. The Windows desktop executable and bundle identify themselves as **GDNG**, with a separate Electron application ID (`com.gdng.editor`) and Windows AppUserModelID so they do not replace an official GDevelop installation. The packaged desktop updater is explicitly configured for GitHub releases from `AiratGaliev/GDNG`; it never checks or installs releases from the upstream `4ian/GDevelop` repository. The current Windows artifact is a portable ZIP, for which `electron-updater` does not support automatic installation. Portable builds therefore detect their package marker, report that updates are manual, and do not call `autoUpdater`. Download a newer ZIP from GDNG Releases when one is published. A future signed NSIS distribution can enable the configured in-app updater.
+The Windows desktop executable and bundle identify themselves as **GDNG**, with a separate Electron application ID (`com.gdng.editor`) and Windows AppUserModelID so they do not replace an official GDevelop installation. The packaged desktop updater is explicitly configured for GitHub releases from `AiratGaliev/GDNG`; it never checks or installs releases from the upstream `4ian/GDevelop` repository. The current Windows artifact is a portable ZIP, for which `electron-updater` does not support automatic installation. Portable builds therefore detect their package marker, report that updates are manual, and do not call `autoUpdater`. Download a newer ZIP from GDNG Releases when one is published. A future signed NSIS distribution can enable the configured in-app updater.
 
 ## Local feature policy
 
@@ -73,14 +73,13 @@ The workflow runs the complete IDE unit suite and Flow on Ubuntu (the upstream r
 
 Use Node.js 24 and npm. The repository's own setup scripts import the GDJS runtime and native `GDevelop.js` bindings into the editor resources.
 
-From PowerShell:
+From PowerShell, run these commands from the repository root:
 
 ```powershell
-cd C:\Users\Airat\WebstormProjects\GDNG
-
+# Run from the repository root.
 python -m pip install --upgrade setuptools
 
-cd newIDE\app
+Push-Location newIDE\app
 npm install --no-audit --no-fund
 
 # Windows: run the GDNG-specific test; the complete IDE suite runs on Ubuntu CI.
@@ -93,11 +92,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Flow failed to start' }
 if ($LASTEXITCODE -ne 0) { throw 'Flow reported errors' }
 & $flow stop
 
-cd ..\electron-app
+Pop-Location
+
+Push-Location newIDE\electron-app
 npm install --no-audit --no-fund
 
 $env:GD_PORTABLE_BUILD = 'true'
 node scripts/build.js --win zip --publish never
+Pop-Location
 ```
 
 The IDE lockfile pins `caniuse-lite` to `1.0.30001826` so Browserslist uses current browser-support data during editor and Storybook builds; refresh this lockfile entry when updating the browser data rather than suppressing the stale-data warning or mutating dependencies ad hoc during CI. The Electron package's install script installs its nested Electron dependencies and imports resources. Do not pin `electronDist` to the host-installed `node_modules/electron/dist`: that directory is architecture-specific and breaks Linux ARM64 and macOS universal packaging. Let electron-builder resolve the matching Electron distribution for each target architecture. Modern npm versions block Git dependencies by default, so `newIDE/app/.npmrc` uses `allow-git=root`: only Git dependencies explicitly declared by the IDE's own `package.json` are allowed. The workflow rewrites the public upstream GitHub SSH dependency URL to HTTPS so CI does not need a personal SSH key. The Electron postinstall script is explicitly allowlisted in `newIDE/electron-app/package.json` for the pinned Electron version, and GDJS explicitly allowlists its pinned `esbuild` postinstall in `GDJS/package.json`. The build-policy check verifies these narrow allowlists. Do not globally disable npm's Git-dependency or install-script protections. If you change C++ Core or native extensions, consult `GDevelop.js/README.md` and rebuild the WebAssembly bindings with the documented Emscripten version.
@@ -107,7 +109,7 @@ The IDE lockfile pins `caniuse-lite` to `1.0.30001826` so Browserslist uses curr
 Prefer the automated release PR. If a manual upstream integration is necessary, it must still go through a reviewable PR into `main`; direct pushes to protected branches are not part of the workflow.
 
 ```powershell
-cd C:\\Users\\Airat\\WebstormProjects\\GDNG
+# Run from the repository root.
 
 git fetch origin --prune
 git fetch upstream --tags
