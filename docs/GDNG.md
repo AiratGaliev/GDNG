@@ -11,7 +11,7 @@ GDNG is not an official GDevelop product and is not affiliated with the GDevelop
 | `origin` | `https://github.com/AiratGaliev/GDNG.git` | This downstream fork |
 | `upstream` | `https://github.com/4ian/GDevelop.git` | Official source repository |
 
-The default branch is `main`, renamed from `custom` on 19 November 2026. It was initialized from upstream release `v5.6.287` (4 November 2026). Keep downstream changes on `main` or short-lived branches based on it. The `master` branch is retained as the upstream mirror of `4ian/GDevelop`; do not develop directly on it.
+The default branch is `main`, renamed from `custom` on 19 November 2026. It was initialized from upstream release `v5.6.287` (4 November 2026). GDNG uses `dev` for engineering integration, `test` for integrated candidate validation and `main` as the release baseline. The normal route is `topic branch → dev → test → main`. The `master` branch is a frozen, read-only snapshot of upstream GDevelop history. It is not synchronized automatically and must never be used as a GDNG development base. See [Development workflow](development-workflow.md) for branch, PR, CI, promotion and release rules.
 
 For existing local clones created before the rename, update the local branch and tracking reference once:
 
@@ -65,7 +65,7 @@ The automation uses the repository-scoped `GITHUB_TOKEN`; no personal access tok
 
 ## Build and artifacts
 
-`.github/workflows/build-portable-windows.yml` runs on pushes to `main` and can also be manually dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
+`.github/workflows/build-portable-windows.yml` is manual-only and can be dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
 
 The workflow runs the complete IDE unit suite and Flow on Ubuntu (the upstream resource-path tests assume POSIX path semantics), checks GDJS TypeScript types, then builds an unsigned portable Windows ZIP on Windows and uploads it as a GitHub Actions artifact for 30 days. It does not publish installers, sign binaries, create a GitHub Release, or deploy anything externally.
 
@@ -104,27 +104,30 @@ The IDE lockfile pins `caniuse-lite` to `1.0.30001826` so Browserslist uses curr
 
 ## Manual upstream update
 
-Prefer the automated release PR. For a deliberate manual update:
+Prefer the automated release PR. If a manual upstream integration is necessary, it must still go through a reviewable PR into `main`; direct pushes to protected branches are not part of the workflow.
 
 ```powershell
-cd C:\Users\Airat\WebstormProjects\GDNG
+cd C:\\Users\\Airat\\WebstormProjects\\GDNG
 
+git fetch origin --prune
+git fetch upstream --tags
 git switch main
 git pull --ff-only origin main
-git fetch upstream --tags
 
 # Replace with the exact published upstream tag:
+git switch -c automation/upstream-vX.Y.Z
 git merge --no-ff vX.Y.Z
 
 node scripts/verify-gdng-local-policy.cjs
 node scripts/verify-gdng-ci.cjs
 git diff --check
 
-# Run tests, Flow and the portable build before pushing:
-git push origin main
+git push --set-upstream origin automation/upstream-vX.Y.Z
+gh workflow run build-portable-windows.yml --ref automation/upstream-vX.Y.Z -f source_ref=automation/upstream-vX.Y.Z
+gh pr create --base main --head automation/upstream-vX.Y.Z
 ```
 
-Do not force-push `main`. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag.
+Wait for the dispatched `Build GDNG Windows portable` run to succeed, then review the complete PR diff and merge only after the candidate validation is successful. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag. Never push the integration commit directly to `main`.
 
 ## License and attribution
 
@@ -132,17 +135,17 @@ Keep upstream license files and copyright notices intact. The Core, game engine,
 
 ## CI and platform builds
 
-GitHub Actions is the active CI enforcement layer for GDNG. `.github/workflows/fast-ci.yml` implements the upstream-style pull-request checks, `.github/workflows/release-multiplatform.yml` runs the full exact-commit matrix on `main`, and `.github/workflows/daily-e2e.yml` exercises the latest successful `main` package without rebuilding it. The full matrix on `main` is validation-only; it does not publish a release unless a `gdng-vX.Y.Z` tag is pushed or a qualifying upstream-release PR is merged.
+GitHub Actions is the active CI enforcement layer for GDNG. `.github/workflows/fast-ci.yml` implements Fast CI for PRs targeting `dev`, `test` and `main`, including the required aggregate `fast-checks` status. `.github/workflows/release-multiplatform.yml` runs the full exact-commit matrix on pushes to `test` and `main`; ordinary branch pushes are validation-only. `.github/workflows/daily-e2e.yml` exercises the latest successful `main` package without rebuilding it. A release is published only through a `gdng-vX.Y.Z` tag or a qualifying merged upstream-release PR.
 
 `.circleci/config.yml` preserves the upstream-derived CircleCI graph for future activation. The repository is **not yet connected to a CircleCI project**, so this configuration is not executing as a live CircleCI pipeline. GitHub Actions validates it with the official CircleCI CLI. Its graph follows upstream: `build-gdevelop_js-wasm-only` creates the exact current-commit Core/WebAssembly artifact; `build-app-for-desktop` consumes that workspace, imports the exact bindings and builds the web editor once; Linux and Windows package the same persisted editor output with `--skip-app-build`; macOS retains its independent native build path. The graph includes Core/WASM sanitizers, package validation, daily E2E and change-based visual jobs. It has no S3 deployment or release publisher and cannot race with the authoritative GitHub Release workflow.
 
-The `main` branch is the only downstream primary integration/build branch. `master` remains the upstream GDevelop mirror and must not be used as the GDNG base branch. The PR checks observed for this migration were GitHub Actions checks; no live CircleCI status is claimed, and Semaphore/Travis configuration files alone must not be treated as evidence that those providers are connected.
+GDNG uses `dev` for ordinary engineering integration, `test` for integrated candidate validation and `main` as the release baseline. The normal promotion route is `topic branch → dev → test → main`; `master` is a frozen read-only upstream snapshot, not a live mirror. See [Development workflow](development-workflow.md) for the authoritative branch and PR policy. The PR checks observed for this migration were GitHub Actions checks; no live CircleCI status is claimed, and Semaphore/Travis configuration files alone must not be treated as evidence that those providers are connected.
 
 ### Development validation model
 
-**Pull requests targeting `main`.** `.github/workflows/fast-ci.yml` builds `GDevelop.js`/WASM for the exact PR commit, runs GDevelop.js tests, native GDCore ASan/UBSan, IDE lint/format/Flow/script-type/unit tests, and GDJS type/doc/format/build/ChromeHeadless checks. Storybook visual coverage is change-based: the workflow lists tests related to the PR and skips the editor dependency install, Storybook build and Chromium setup when no tests are affected. This mirrors the division used by GDevelop's Semaphore and changed-visual-test jobs, while retaining an exact WASM check for GDNG. It intentionally does not package Windows, Linux or macOS installers. The workflow also has a push trigger restricted to `ci/full-multiplatform-builds`, so PR #1 can exercise the new fast pipeline before it is merged; ordinary feature branches are validated through `pull_request` only.
+**Pull requests targeting `dev`, `test` or `main`.** `.github/workflows/fast-ci.yml` builds `GDevelop.js`/WASM for the exact PR commit, runs GDevelop.js tests, native GDCore ASan/UBSan, IDE lint/format/Flow/script-type/unit tests, and GDJS type/doc/format/build/ChromeHeadless checks. Storybook visual coverage is change-based and compares against the actual PR target branch (`github.base_ref`). The workflow intentionally does not package Windows, Linux or macOS installers. Its `fast-checks` aggregate job waits for all five validation jobs and fails unless each succeeds; this is the stable required status used by the `dev`, `test` and `main` Rulesets.
 
-**After changes reach `main`.** `.github/workflows/release-multiplatform.yml` runs the full cross-platform validation matrix against the exact pushed commit. It validates all package formats and architectures, sanitizers, IDE/runtime checks, CLI export and the full Storybook/packaged-editor visual suites. Ordinary `main` pushes use the validation-only publisher path: no tag, draft Release or external publication is created. The full matrix remains the acceptance gate for the product, not the normal feedback loop for every feature-branch push.
+**After a candidate reaches `test` or `main`.** `.github/workflows/release-multiplatform.yml` runs the full cross-platform validation matrix against the exact pushed commit. It validates package formats and architectures, sanitizers, IDE/runtime checks, CLI export and the full Storybook/packaged-editor visual suites. Ordinary branch pushes use the validation-only path: no tag, draft Release or external publication is created. Full validation and functional/browser/manual acceptance are separate gates; acceptance is recorded against the exact candidate SHA on `test` before promotion to `main`.
 
 **Daily E2E.** `.github/workflows/daily-e2e.yml` runs at 16:00 UTC and can be started manually. It locates the latest successful `main` run of the full validation workflow, downloads that run's `gdng-release-linux` artifact and executes CLI HTML5 export plus real-editor visual tests against the same package. The Linux artifact is retained for seven days. This catches regressions in a packaged build without paying the cost of rebuilding the platform matrix every day.
 
@@ -167,7 +170,7 @@ The publisher rejects missing architectures, empty or duplicate assets, and mism
 
 A merged `automation/upstream-vX.Y.Z` PR follows the same platform matrix. The workflow checks that the version in `newIDE/electron-app/app/package.json` matches the upstream PR tag, then creates the immutable `gdng-vX.Y.Z` tag on the exact merge commit in `main` and publishes the release. The tag is created only after all required build and test jobs succeed. Re-runs accept that tag only when it already points to the same commit; an existing tag on another commit is never moved. The tag-triggered path remains available for manually selected commits and uses the same build matrix and publisher.
 
-A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. When `release_tag` is left empty, validation derives the expected tag from the current `newIDE/electron-app/app/package.json` version. It **does not** create or publish a release. The workflow runs the full validation-only matrix on pushes to `main` and on the dedicated `ci/full-multiplatform-builds` branch while this CI migration is being reviewed. The dedicated branch trigger is retained so PR #1 can validate the new pipeline before it is merged.
+A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. When `release_tag` is left empty, validation derives the expected tag from the current `newIDE/electron-app/app/package.json` version. It **does not** create or publish a release. The workflow runs the full validation-only matrix on pushes to `test` and `main`. It does not use a temporary CI-migration branch trigger.
 
 GitHub Actions uses its repository-scoped `GITHUB_TOKEN` with `contents: write`; no CircleCI project activation, PAT or manually stored release secret is required. The release binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear; signing and notarization can be added later with GDNG-owned certificates.
 

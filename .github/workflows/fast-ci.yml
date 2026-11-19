@@ -1,17 +1,14 @@
 name: Fast PR validation
 
 # Mirrors GDevelop's fast Semaphore + branch-level CircleCI checks.
-# The full native/platform matrix and exact packaged-editor tests run on main.
+# The full native/platform matrix and exact packaged-editor tests run on test and main.
 on:
   pull_request:
     branches:
+      - dev
+      - test
       - main
     types: [opened, synchronize, reopened, ready_for_review]
-  # Validate this CI migration branch directly so its new PR workflow can be
-  # exercised before the workflow file is present on the default branch.
-  push:
-    branches:
-      - ci/full-multiplatform-builds
 
 permissions:
   contents: read
@@ -314,14 +311,16 @@ jobs:
         env:
           PUPPETEER_SKIP_DOWNLOAD: '1'
         run: npm install --no-audit --no-fund
-      - name: Fetch main and list only affected Storybook tests
+      - name: List only affected Storybook tests for the target branch
         id: affected-tests
         shell: bash
+        env:
+          BASE_BRANCH: ${{ github.base_ref || 'main' }}
         run: |
           set -euo pipefail
-          git fetch --depth=50 origin main
+          git fetch --depth=50 origin "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
           cd newIDE/visual-tests
-          node run.js --suite=storybook --list-names --only-changed --base-ref=origin/main > /tmp/changed-storybook-tests.txt
+          node run.js --suite=storybook --list-names --only-changed --base-ref="origin/$BASE_BRANCH" > /tmp/changed-storybook-tests.txt
           cat /tmp/changed-storybook-tests.txt
           if [ -s /tmp/changed-storybook-tests.txt ]; then
             echo "has_tests=true" >> "$GITHUB_OUTPUT"
@@ -372,3 +371,42 @@ jobs:
             /tmp/visual-tests-results
           if-no-files-found: ignore
           retention-days: 7
+
+  # Stable aggregate status for branch protection. Detailed jobs remain
+  # independently visible so a failed area can be diagnosed without rerunning
+  # the entire workflow.
+  fast-checks:
+    name: fast-checks
+    needs:
+      - build-wasm
+      - core-sanitizers
+      - ide-fast-checks
+      - gdjs-fast-checks
+      - changed-storybook-tests
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every fast validation job to succeed
+        shell: bash
+        env:
+          BUILD_WASM_RESULT: ${{ needs.build-wasm.result }}
+          CORE_SANITIZERS_RESULT: ${{ needs.core-sanitizers.result }}
+          IDE_FAST_CHECKS_RESULT: ${{ needs.ide-fast-checks.result }}
+          GDJS_FAST_CHECKS_RESULT: ${{ needs.gdjs-fast-checks.result }}
+          CHANGED_STORYBOOK_RESULT: ${{ needs.changed-storybook-tests.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for result in \
+            "$BUILD_WASM_RESULT" \
+            "$CORE_SANITIZERS_RESULT" \
+            "$IDE_FAST_CHECKS_RESULT" \
+            "$GDJS_FAST_CHECKS_RESULT" \
+            "$CHANGED_STORYBOOK_RESULT"; do
+            if [[ "$result" != "success" ]]; then
+              echo "::error::A required Fast CI job finished with result: $result"
+              failed=1
+            fi
+          done
+          exit "$failed"
