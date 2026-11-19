@@ -224,6 +224,35 @@ function sha256(filePath) {
   });
 }
 
+async function resolveReleaseTagCommit() {
+  const ref = await githubRequest(
+    'GET',
+    '/repos/' + repository + '/git/ref/tags/' + encodeURIComponent(tag)
+  );
+  if (!ref || !ref.object || !ref.object.type || !ref.object.sha) {
+    throw new Error('GitHub did not return a valid object for release tag ' + tag + '.');
+  }
+
+  let object = ref.object;
+  for (let depth = 0; object.type === 'tag' && depth < 5; depth += 1) {
+    const annotatedTag = await githubRequest(
+      'GET',
+      '/repos/' + repository + '/git/tags/' + object.sha
+    );
+    if (!annotatedTag || !annotatedTag.object) {
+      throw new Error('Could not resolve annotated release tag ' + tag + '.');
+    }
+    object = annotatedTag.object;
+  }
+
+  if (object.type !== 'commit') {
+    throw new Error(
+      'Release tag ' + tag + ' must resolve to a commit; got ' + object.type + '.'
+    );
+  }
+  return object.sha;
+}
+
 async function main() {
   const assetsByPlatform = {
     macos: listFiles(platformDirectories.macos, ['.dmg', '.zip']),
@@ -306,6 +335,14 @@ async function main() {
       assets.length + ' non-empty files across macOS, Linux and Windows.'
     );
     return;
+  }
+
+  const taggedCommit = await resolveReleaseTagCommit();
+  if (taggedCommit !== sourceCommit) {
+    throw new Error(
+      'Release tag ' + tag + ' resolves to ' + taggedCommit +
+      ', but this workflow built ' + sourceCommit + '. Refusing to publish mismatched artifacts.'
+    );
   }
 
   let release;
