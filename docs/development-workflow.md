@@ -109,8 +109,9 @@ The full release workflow shares one exact-commit web-editor build across the pl
 
 GitHub Rulesets protect all three long-lived branches:
 
-- `main` requires a PR, prevents deletion and force-push, and requires all five currently active Fast CI job checks.
-- `dev` and `test` require a PR and prevent deletion and force-push. Their Fast CI triggers are introduced with this workflow bootstrap; make the aggregate `fast-checks` status mandatory in those two Rulesets after the first PR checks have been observed on each target branch. Do not configure a required status context that has never been emitted for that branch.
+- `main`, `dev` and `test` all require Pull Requests, prevent branch deletion and non-fast-forward updates, and require the aggregate `fast-checks` status from GitHub Actions.
+- The `fast-checks` job waits for all five Fast CI jobs and fails unless every one succeeds. Detailed job checks remain visible for diagnosis.
+- GDNG does not currently publish a separate `mcp-integration` status, so it is not included as a fabricated required check.
 
 The repository is maintained by a small set of contributors, so the Rulesets require PRs but do not impose a non-zero approving-review count. Review the diff and CI evidence before merging even when GitHub does not require a second reviewer.
 
