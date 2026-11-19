@@ -115,15 +115,15 @@ git switch main
 git pull --ff-only origin main
 
 # Replace with the exact published upstream tag:
-git switch -c automation/manual-upstream-vX.Y.Z
+git switch -c automation/upstream-vX.Y.Z
 git merge --no-ff vX.Y.Z
 
 node scripts/verify-gdng-local-policy.cjs
 node scripts/verify-gdng-ci.cjs
 git diff --check
 
-git push --set-upstream origin automation/manual-upstream-vX.Y.Z
-gh pr create --base main --head automation/manual-upstream-vX.Y.Z
+git push --set-upstream origin automation/upstream-vX.Y.Z
+gh pr create --base main --head automation/upstream-vX.Y.Z
 ```
 
 Review the complete PR diff and wait for the applicable candidate validation before merging. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag. Never push the integration commit directly to `main`.
