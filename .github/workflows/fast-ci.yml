@@ -189,6 +189,9 @@ jobs:
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           python -m pip install --upgrade setuptools
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
       - name: Install IDE dependencies and import exact-commit resources
         working-directory: newIDE/app
         run: npm install --no-audit --no-fund
