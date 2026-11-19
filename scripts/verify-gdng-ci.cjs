@@ -68,12 +68,12 @@ const checksumCommand = extractIndentedSection(
 );
 assert.match(
   checksumCommand,
-  /command:\\s*\\|[\\s\\S]*?for lock_file in << parameters\\.lock-files >>; do[\\s\\S]*?sha256sum "\\$lock_file"[\\s\\S]*?done \\| sha256sum \\| cut -d ' ' -f1 > ci-dependencies-checksum\\.txt/,
+  /command:\s*\|[\s\S]*?for lock_file in << parameters\.lock-files >>; do[\s\S]*?sha256sum "\$lock_file"[\s\S]*?done \| sha256sum \| cut -d ' ' -f1 > ci-dependencies-checksum\.txt/,
   'CircleCI lockfile checksum command must iterate over the parameterized files and produce a stable digest.'
 );
 assert.doesNotMatch(
   checksumCommand,
-  /cat\\s+<</,
+  /cat\s+<</,
   'Do not use an incomplete heredoc/redirection for the CircleCI lockfile checksum.'
 );
 
