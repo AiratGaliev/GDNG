@@ -123,10 +123,11 @@ node scripts/verify-gdng-ci.cjs
 git diff --check
 
 git push --set-upstream origin automation/upstream-vX.Y.Z
+gh workflow run build-portable-windows.yml --ref automation/upstream-vX.Y.Z -f source_ref=automation/upstream-vX.Y.Z
 gh pr create --base main --head automation/upstream-vX.Y.Z
 ```
 
-Review the complete PR diff and wait for the applicable candidate validation before merging. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag. Never push the integration commit directly to `main`.
+Wait for the dispatched `Build GDNG Windows portable` run to succeed, then review the complete PR diff and merge only after the candidate validation is successful. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag. Never push the integration commit directly to `main`.
 
 ## License and attribution
 
