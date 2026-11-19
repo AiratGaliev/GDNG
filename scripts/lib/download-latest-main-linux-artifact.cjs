@@ -127,4 +127,4 @@ function downloadLatestMainLinuxArtifact({ outputDirectory, log = () => {} }) {
   );
 }
 
-module.exports = { downloadLatestMainLinuxArtifact };
+module.exports = { downloadLatestMainLinuxArtifact, findPortableZip };

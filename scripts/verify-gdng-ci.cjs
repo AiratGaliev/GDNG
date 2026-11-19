@@ -655,6 +655,19 @@ assert.match(artifactResolver, /gdng-release-linux/);
 assert.match(artifactResolver, /run',\s*'download'/);
 assert.match(artifactResolver, /conclusion === 'success'.*head_branch === 'main'/s);
 assert.match(artifactResolver, /actions:read/);
-require('./lib/download-latest-main-linux-artifact.cjs');
+const artifactHelper = require('./lib/download-latest-main-linux-artifact.cjs');
+assert.equal(typeof artifactHelper.downloadLatestMainLinuxArtifact, 'function');
+assert.equal(typeof artifactHelper.findPortableZip, 'function');
+const artifactFixture = fs.mkdtempSync(
+  path.join(require('node:os').tmpdir(), 'gdng-artifact-resolver-')
+);
+try {
+  const x64Zip = path.join(artifactFixture, 'gdng-5.6.287.zip');
+  fs.writeFileSync(x64Zip, 'x64');
+  fs.writeFileSync(path.join(artifactFixture, 'gdng-5.6.287-arm64.zip'), 'arm64');
+  assert.equal(artifactHelper.findPortableZip(artifactFixture), x64Zip);
+} finally {
+  fs.rmSync(artifactFixture, { recursive: true, force: true });
+}
 
 console.log('GDNG CI and GitHub Release preservation verification passed.');

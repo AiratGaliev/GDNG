@@ -3,18 +3,14 @@
  * End-to-end smoke test for the GDevelop "portable" build + CLI export.
  *
  * What it does:
- *   1. Gets a local Linux portable ZIP or downloads the latest successful
- *      main build artifact through the GitHub CLI, then reads its version.
- *   2. Gets the matching Linux portable zip, either from a local path
- *      (via --zipPath, e.g. the artifact a build-linux job just produced)
- *      or by downloading the latest successful main build artifact via GitHub CLI.
- *   3. Extracts it with adm-zip.
- *   4. Sparse-clones an example game from the GDevelop-examples repository
- *      (defaults to "3d-platformer").
- *   5. Runs the extracted GDevelop binary in CLI mode with
+ *   1. Gets a Linux portable ZIP: from --zipPath or the latest successful
+ *      main build artifact downloaded through the GitHub CLI.
+ *   2. Reads the build version from the ZIP filename and extracts the app.
+ *   3. Sparse-clones an example game from GDevelop-examples (default:
+ *      "3d-platformer").
+ *   4. Runs the extracted binary in CLI mode with
  *      `--run-command EXPORT_HTML5_EXTERNAL` to export the game to HTML5.
- *   6. Verifies the exported HTML5 game looks valid (e.g. `index.html`
- *      exists) and zips it into the artifacts folder.
+ *   5. Verifies the HTML5 output and zips it into the artifacts folder.
  *
  * Usage:
  *   node test-portable-cli-export.js [--example=3d-platformer]
@@ -66,9 +62,7 @@ const fail = msg => {
   shell.mkdir('-p', workDir);
   shell.mkdir('-p', artifactsDir);
 
-  // 1. Get the Linux portable zip — either from a local path passed in via
-  //    --zipPath (e.g. when chained after a build-linux job) or from the
-  //    matching GDNG GitHub Release.
+  // 1. Get the Linux portable ZIP from the current build or the latest main artifact.
   let portableZipPath;
   if (localZipPath) {
     if (!fs.existsSync(localZipPath)) {
