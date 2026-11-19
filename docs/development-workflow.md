@@ -149,6 +149,8 @@ The branch protection and this workflow do not authorize direct pushes to the up
 
 ## 7. Local clone setup and recovery
 
+Run the commands in this section from the repository root. Documentation examples use repository-relative paths and must not contain contributor-specific absolute paths, home-directory paths or machine-specific usernames.
+
 For an existing clone:
 
 ```powershell
