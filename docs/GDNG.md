@@ -11,7 +11,16 @@ GDNG is not an official GDevelop product and is not affiliated with the GDevelop
 | `origin` | `https://github.com/AiratGaliev/GDNG.git` | This downstream fork |
 | `upstream` | `https://github.com/4ian/GDevelop.git` | Official source repository |
 
-The default branch is `custom`. It was initialized from upstream release `v5.6.287` (4 November 2026). Keep downstream changes on `custom` or short-lived branches based on it. Do not develop directly on the mirrored `master` branch.
+The default branch is `main`, renamed from `custom` on 19 November 2026. It was initialized from upstream release `v5.6.287` (4 November 2026). Keep downstream changes on `main` or short-lived branches based on it. The `master` branch is retained as the upstream mirror of `4ian/GDevelop`; do not develop directly on it.
+
+For existing local clones created before the rename, update the local branch and tracking reference once:
+
+```powershell
+git fetch origin --prune
+git branch -m custom main
+git branch --set-upstream-to=origin/main main
+git remote set-head origin -a
+```
 
 The local checkout is expected at `C:\Users\Airat\WebstormProjects\GDNG`. The Windows desktop executable and bundle identify themselves as **GDNG**, with a separate Electron application ID (`com.gdng.editor`) and Windows AppUserModelID so they do not replace an official GDevelop installation. The packaged desktop updater is explicitly configured for GitHub releases from `AiratGaliev/GDNG`; it never checks or installs releases from the upstream `4ian/GDevelop` repository. The current Windows artifact is a portable ZIP, for which `electron-updater` does not support automatic installation. Portable builds therefore detect their package marker, report that updates are manual, and do not call `autoUpdater`. Download a newer ZIP from GDNG Releases when one is published. A future signed NSIS distribution can enable the configured in-app updater.
 
@@ -43,11 +52,11 @@ The workflow:
 
 1. Looks up the latest published release in `4ian/GDevelop`, or uses an explicitly supplied tag.
 2. Fetches the exact upstream tag.
-3. Skips a tag already contained in `custom`.
+3. Skips a tag already contained in `main`.
 4. Merges the release into a temporary `automation/upstream-<tag>` branch.
 5. Stops without pushing if Git reports merge conflicts. In particular, a conflict in `.circleci/config.yml` is never resolved by blindly choosing either side.
 6. Runs `scripts/verify-gdng-ci.cjs` after a successful merge and before publishing the candidate branch.
-7. Opens a pull request targeting `custom`.
+7. Opens a pull request targeting `main`.
 8. Dispatches a candidate Windows build for that pull-request branch.
 
 Upstream updates are **not auto-merged**. Review the PR diff and wait for the candidate build before merging. A conflicting CircleCI file blocks the automation instead of overwriting the GDNG pipeline; reconcile upstream CI improvements with the GDNG platform/artifact requirements explicitly, then rerun `scripts/verify-gdng-ci.cjs`. Never resolve that conflict by taking the complete `ours` or `theirs` version without reviewing the resulting jobs and workflows.
@@ -56,7 +65,7 @@ The automation uses the repository-scoped `GITHUB_TOKEN`; no personal access tok
 
 ## Build and artifacts
 
-`.github/workflows/build-portable-windows.yml` runs on pushes to `custom` and can also be manually dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
+`.github/workflows/build-portable-windows.yml` runs on pushes to `main` and can also be manually dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
 
 The workflow runs the complete IDE unit suite and Flow on Ubuntu (the upstream resource-path tests assume POSIX path semantics), checks GDJS TypeScript types, then builds an unsigned portable Windows ZIP on Windows and uploads it as a GitHub Actions artifact for 30 days. It does not publish installers, sign binaries, create a GitHub Release, or deploy anything externally.
 
@@ -100,8 +109,8 @@ Prefer the automated release PR. For a deliberate manual update:
 ```powershell
 cd C:\Users\Airat\WebstormProjects\GDNG
 
-git switch custom
-git pull --ff-only origin custom
+git switch main
+git pull --ff-only origin main
 git fetch upstream --tags
 
 # Replace with the exact published upstream tag:
@@ -112,10 +121,10 @@ node scripts/verify-gdng-ci.cjs
 git diff --check
 
 # Run tests, Flow and the portable build before pushing:
-git push origin custom
+git push origin main
 ```
 
-Do not force-push `custom`. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag.
+Do not force-push `main`. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag.
 
 ## License and attribution
 
@@ -123,11 +132,11 @@ Keep upstream license files and copyright notices intact. The Core, game engine,
 
 ## CI and platform builds
 
-`.circleci/config.yml` preserves the upstream-derived CircleCI branch-validation graph for `custom`. The repository is not yet connected to a CircleCI project, so this configuration is not currently executing as a live CircleCI pipeline; GitHub Actions still validates it with the official CircleCI CLI. When connected, CircleCI will provide the separate upstream-style branch validation graph. Its build graph follows upstream: `build-gdevelop_js-wasm-only` creates the exact current-commit Core/WebAssembly artifact; `build-app-for-desktop` consumes that workspace, imports the exact bindings and builds the web editor once; Linux and Windows then package the same persisted editor output with `--skip-app-build`. macOS retains its independent native build path, as in upstream. The graph also retains the Core sanitizer, GDJS/WASM, IDE, CLI-export and visual-test jobs. The `custom` branch is the downstream primary branch. CircleCI is **not** configured as a GitHub Release publisher, so it cannot race with the release workflow or overwrite release assets. The GitHub Actions verification job also runs the official CircleCI CLI `config validate` against this file, so configuration errors are caught even when the repository is not yet connected to a CircleCI project. Superseded branch-validation runs are cancelled when a newer commit is pushed to the same validation branch; tag-release and manual validation runs are not cancelled by this policy.
+`.circleci/config.yml` preserves the upstream-derived CircleCI branch-validation graph for `main`. The repository is not yet connected to a CircleCI project, so this configuration is not currently executing as a live CircleCI pipeline; GitHub Actions still validates it with the official CircleCI CLI. When connected, CircleCI will provide the separate upstream-style branch validation graph. Its build graph follows upstream: `build-gdevelop_js-wasm-only` creates the exact current-commit Core/WebAssembly artifact; `build-app-for-desktop` consumes that workspace, imports the exact bindings and builds the web editor once; Linux and Windows then package the same persisted editor output with `--skip-app-build`. macOS retains its independent native build path, as in upstream. The graph also retains the Core sanitizer, GDJS/WASM, IDE, CLI-export and visual-test jobs. The `main` branch is the downstream primary branch. CircleCI is **not** configured as a GitHub Release publisher, so it cannot race with the release workflow or overwrite release assets. The GitHub Actions verification job also runs the official CircleCI CLI `config validate` against this file, so configuration errors are caught even when the repository is not yet connected to a CircleCI project. Superseded branch-validation runs are cancelled when a newer commit is pushed to the same validation branch; tag-release and manual validation runs are not cancelled by this policy.
 
 ### Authoritative multi-platform GitHub Release workflow
 
-`.github/workflows/release-multiplatform.yml` is the only workflow that publishes GDNG versioned releases. It supports two independent entry points: (1) push a matching `gdng-vX.Y.Z` tag for a deliberately selected commit, or (2) merge an upstream sync PR from `automation/upstream-vX.Y.Z` into `custom`. The second path is accepted only after the PR is merged; unrelated PR closures are filtered out before starting the expensive build matrix.
+`.github/workflows/release-multiplatform.yml` is the only workflow that publishes GDNG versioned releases. It supports two independent entry points: (1) push a matching `gdng-vX.Y.Z` tag for a deliberately selected commit, or (2) merge an upstream sync PR from `automation/upstream-vX.Y.Z` into `main`. The second path is accepted only after the PR is merged; unrelated PR closures are filtered out before starting the expensive build matrix.
 
 The release graph performs these steps:
 
@@ -142,27 +151,27 @@ The workflow caches npm downloads for dependency-installing jobs, the Emscripten
 
 The publisher rejects missing architectures, empty or duplicate assets, and mismatched tags. Before upload, it resolves the GitHub tag (including annotated tags) and verifies that it still points to the exact commit used for the build. It generates `gdng-release-metadata.json` and `SHA256SUMS.txt`, creates a GitHub draft Release, uploads all binaries, and publishes the draft only after every upload succeeds. It never overwrites an already published release or deletes assets from a draft that it does not own.
 
-A merged `automation/upstream-vX.Y.Z` PR follows the same platform matrix. The workflow checks that the version in `newIDE/electron-app/app/package.json` matches the upstream PR tag, then creates the immutable `gdng-vX.Y.Z` tag on the exact merge commit in `custom` and publishes the release. The tag is created only after all required build and test jobs succeed. Re-runs accept that tag only when it already points to the same commit; an existing tag on another commit is never moved. The tag-triggered path remains available for manually selected commits and uses the same build matrix and publisher.
+A merged `automation/upstream-vX.Y.Z` PR follows the same platform matrix. The workflow checks that the version in `newIDE/electron-app/app/package.json` matches the upstream PR tag, then creates the immutable `gdng-vX.Y.Z` tag on the exact merge commit in `main` and publishes the release. The tag is created only after all required build and test jobs succeed. Re-runs accept that tag only when it already points to the same commit; an existing tag on another commit is never moved. The tag-triggered path remains available for manually selected commits and uses the same build matrix and publisher.
 
 A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. When `release_tag` is left empty, validation derives the expected tag from the current `newIDE/electron-app/app/package.json` version. It **does not** create or publish a release. The workflow also runs this validation automatically when commits are pushed to `ci/full-multiplatform-builds`; use that run to validate the complete matrix before merging the CI PR.
 
 GitHub Actions uses its repository-scoped `GITHUB_TOKEN` with `contents: write`; no CircleCI project activation, PAT or manually stored release secret is required. The release binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear; signing and notarization can be added later with GDNG-owned certificates.
 
-For a deliberately selected manual release of the current package version `5.6.287`, the matching tag remains `gdng-v5.6.287`. After merging the release workflow into `custom` and validating the full manual matrix, publish it with:
+For a deliberately selected manual release of the current package version `5.6.287`, the matching tag remains `gdng-v5.6.287`. After merging the release workflow into `main` and validating the full manual matrix, publish it with:
 
 ```powershell
-git switch custom
-git pull --ff-only origin custom
+git switch main
+git pull --ff-only origin main
 git tag gdng-v5.6.287
 git push origin gdng-v5.6.287
 ```
 
-GitHub Actions will then build from that exact tag and publish the Release automatically. For routine upstream updates, do not create this tag manually: merging the reviewed `automation/upstream-vX.Y.Z` PR into `custom` starts the same release pipeline and creates the GDNG tag after the matrix passes.
+GitHub Actions will then build from that exact tag and publish the Release automatically. For routine upstream updates, do not create this tag manually: merging the reviewed `automation/upstream-vX.Y.Z` PR into `main` starts the same release pipeline and creates the GDNG tag after the matrix passes.
 
 ### Upstream merge protection
 
-`.github/workflows/sync-upstream-release.yml` continues to prepare PRs only; it never auto-merges upstream into `custom`. On a Git conflict it aborts before pushing a candidate branch. After a conflict-free merge it runs `scripts/verify-gdng-ci.cjs` before publishing the candidate branch.
+`.github/workflows/sync-upstream-release.yml` continues to prepare PRs only; it never auto-merges upstream into `main`. On a Git conflict it aborts before pushing a candidate branch. After a conflict-free merge it runs `scripts/verify-gdng-ci.cjs` before publishing the candidate branch.
 
 The verifier protects both CI systems: it checks the CircleCI reusable dependency/Emscripten commands, current-commit WASM hand-off, shared editor build workspace and downstream platform dependencies, and it checks the GitHub release workflow's platform jobs, exact-commit WASM hand-off, tests, publisher dependencies and validation-only dispatch. This is intended to stop an upstream update that would silently remove GDNG's release matrix or its safety gates.
 
-`.github/workflows/build-portable-windows.yml` remains the automatic Windows branch-validation fallback on pushes to `custom`, and it can also be dispatched manually for troubleshooting or upstream candidate validation. It is not a release workflow and does not publish GitHub Releases.
+`.github/workflows/build-portable-windows.yml` remains the automatic Windows branch-validation fallback on pushes to `main`, and it can also be dispatched manually for troubleshooting or upstream candidate validation. It is not a release workflow and does not publish GitHub Releases.

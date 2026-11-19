@@ -10,7 +10,7 @@ on:
     types:
       - closed
     branches:
-      - custom
+      - main
   workflow_dispatch:
     inputs:
       release_tag:

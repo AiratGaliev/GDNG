@@ -9,7 +9,7 @@ version: 2.1
 parameters:
   # Run *every* visual monkey test, even on a branch. Set it when triggering a
   # pipeline (CircleCI UI or API) to check everything without waiting for the
-  # change to land on `master`.
+  # change to land on `main`.
   run-all-visual-tests:
     type: boolean
     default: false
@@ -99,10 +99,10 @@ commands:
           name: Stop here if no test is related to the changes
           command: |
             if [ "<< parameters.scope >>" != "changed" ]; then exit 0; fi
-            git fetch --depth=50 origin custom
+            git fetch --depth=50 origin main
             cd newIDE/visual-tests
             PUPPETEER_SKIP_DOWNLOAD=1 npm install --no-audit --no-fund --silent
-            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/custom)" ]; then
+            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/main)" ]; then
               echo "No visual monkey test of the << parameters.suite >> suite is related to these changes."
               circleci-agent step halt
             fi
@@ -735,7 +735,7 @@ jobs:
               EXTRA_ARGS="--zipPath=$ZIP_PATH"
             else
               echo "No local build available; using the published GDNG release archive."
-              EXTRA_ARGS="--branch=custom"
+              EXTRA_ARGS="--branch=main"
             fi
             xvfb-run -a --server-args="-screen 0 1280x800x24" \
               node newIDE/app/scripts/test-portable-cli-export.js \
@@ -868,7 +868,7 @@ jobs:
           command: |
             cd newIDE/visual-tests
             if [ "<< parameters.scope >>" = "changed" ]; then
-              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/custom > /tmp/tests.txt
+              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/main > /tmp/tests.txt
             else
               node run.js --suite=storybook --list-names > /tmp/tests.txt
             fi
@@ -992,7 +992,7 @@ jobs:
               exit 1
             fi
             if [ "<< parameters.scope >>" = "changed" ]; then
-              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/custom"
+              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/main"
             fi
             xvfb-run -a --server-args="-screen 0 1500x1000x24" \
               node run.js --suite=editor $EXTRA_ARGS \
@@ -1022,7 +1022,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
   tests:
@@ -1040,7 +1040,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
       - build-app-for-desktop:
@@ -1049,7 +1049,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
       - build-linux:
@@ -1058,7 +1058,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
       # Right after build-linux, run the CLI HTML5 export against the
@@ -1071,7 +1071,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
       # Right after build-linux, run the visual monkey tests of the real
@@ -1084,7 +1084,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
       - build-windows:
@@ -1093,7 +1093,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
                 - stable
                 - /experimental-build.*/
 
@@ -1107,7 +1107,7 @@ workflows:
           filters:
             branches:
               only:
-                - custom
+                - main
     jobs:
       - build-gdevelop_js-wasm-only
       - build-app-for-desktop:
@@ -1125,12 +1125,12 @@ workflows:
           requires:
             - build-linux
 
-  # On custom/stable (or when explicitly asked for): run all Storybook visual
+  # On main/stable (or when explicitly asked for): run all Storybook visual
   # monkey tests. The packaged-editor suite runs in the main build workflow.
   all-visual-tests:
     when:
       or:
-        - equal: [custom, << pipeline.git.branch >>]
+        - equal: [main, << pipeline.git.branch >>]
         - equal: [stable, << pipeline.git.branch >>]
         - << pipeline.parameters.run-all-visual-tests >>
     jobs:
@@ -1147,13 +1147,13 @@ workflows:
           requires:
             - visual-tests-storybook-build-all
   # On a branch / Pull Request: run only Storybook tests related to changed
-  # files. The full desktop app package is validated on custom by the main
+  # files. The full desktop app package is validated on main by the main
   # multi-platform build workflow.
   changed-visual-tests:
     when:
       and:
         - not:
-            equal: [custom, << pipeline.git.branch >>]
+            equal: [main, << pipeline.git.branch >>]
         - not:
             equal: [stable, << pipeline.git.branch >>]
         - not: << pipeline.parameters.run-all-visual-tests >>

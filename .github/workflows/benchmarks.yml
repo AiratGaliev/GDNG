@@ -1,6 +1,6 @@
 # GitHub Action to run the benchmarks of the game engine (GDJS/tests/benchmarks)
 # on the changes made by a pull request, compared to its base branch.
-# On master, each change is compared to the previous commit, so the results
+# On main, each change is compared to the previous commit, so the results
 # (in the summary of the runs, and as artifacts) track the evolution over time.
 
 name: Benchmarks
@@ -12,7 +12,7 @@ on:
       - "Extensions/**"
   push:
     branches:
-      - master
+      - main
     paths:
       - "GDJS/**"
       - "Extensions/**"

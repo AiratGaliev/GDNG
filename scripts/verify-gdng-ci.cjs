@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const read = relativePath =>
-  fs.readFileSync(path.join(root, relativePath), 'utf8');
+  fs.readFileSync(path.join(root, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const circleci = read('.circleci/config.yml');
 const releaseWorkflow = read('.github/workflows/release-multiplatform.yml');
@@ -155,8 +155,17 @@ assert.ok(
   'The daily Linux E2E package must consume the shared editor build.'
 );
 
-assert.match(circleci, /origin\/custom/);
-assert.match(circleci, /- custom/);
+assert.match(circleci, /origin\/main/);
+assert.match(circleci, /- main/);
+assert.match(circleci, /equal: \[main, << pipeline\.git\.branch >>\]/);
+assert.doesNotMatch(
+  circleci,
+  /origin\/custom|equal: \[custom, << pipeline\.git\.branch >>\]/,
+  'CircleCI downstream jobs must use main as the GDNG primary branch.'
+);
+
+const travisConfig = read('.travis.yml');
+assert.match(travisConfig, /branches:[\s\S]*?only:[\s\S]*?- main/);
 assert.doesNotMatch(circleci, /aws-cli\/setup|aws s3 sync/i);
 assert.doesNotMatch(
   circleJobs,
@@ -195,7 +204,7 @@ for (const workflowName of requiredCircleWorkflows) {
 const ghaTriggers = extractTopLevelSection(releaseWorkflow, 'on');
 assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
 assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
-assert.match(ghaTriggers, /pull_request:[\s\S]*?types:[\s\S]*?closed[\s\S]*?branches:[\s\S]*?custom/);
+assert.match(ghaTriggers, /pull_request:[\s\S]*?types:[\s\S]*?closed[\s\S]*?branches:[\s\S]*?main/);
 assert.match(ghaTriggers, /workflow_dispatch:/);
 
 const ghaJobs = extractTopLevelSection(releaseWorkflow, 'jobs');
@@ -440,7 +449,7 @@ assert.match(publisher, /requireArchitecturePair/);
 assert.ok(publisher.includes('async function resolveReleaseTagCommit()'));
 assert.ok(publisher.includes("'/git/ref/tags/'"));
 assert.ok(publisher.includes('taggedCommit !== sourceCommit'));
-assert.match(publisher, /const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev\\/GDNG -->'/);
+assert.ok(publisher.includes("const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev/GDNG -->';"));
 assert.match(publisher, /release\.body\.includes\(publisherMarker\)/);
 assert.match(publisher, /publisherMarker,/);
 assert.match(publisher, /--validate-only/);
@@ -483,11 +492,23 @@ assert.doesNotMatch(cliExport, /S3|s3/);
 
 const windowsFallback = read('.github/workflows/build-portable-windows.yml');
 const fallbackTriggers = extractTopLevelSection(windowsFallback, 'on');
-assert.match(fallbackTriggers, /push:\s*\n\s+branches:\s*\n\s+- custom/);
+assert.match(fallbackTriggers, /push:\s*\n\s+branches:\s*\n\s+- main/);
 assert.match(fallbackTriggers, /workflow_dispatch:/);
+
+const benchmarkWorkflow = read('.github/workflows/benchmarks.yml');
+assert.match(benchmarkWorkflow, /branches:[\s\S]*?- main/);
+const extractionWorkflow = read('.github/workflows/extract-translations.yml');
+assert.match(extractionWorkflow, /github\.ref == 'refs\/heads\/main'/);
+const updateTranslationsWorkflow = read('.github/workflows/update-translations.yml');
+assert.match(updateTranslationsWorkflow, /branches:[\s\S]*?- main/);
+const extensionTranslationsWorkflow = read('.github/workflows/update-extension-translations.yml');
+assert.match(extensionTranslationsWorkflow, /branches:[\s\S]*?- main/);
 
 const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
 assert.match(upstreamSync, /branch="automation\/upstream-\$tag"/);
+assert.match(upstreamSync, /ref: main/);
+assert.match(upstreamSync, /--base main/);
+assert.match(upstreamSync, /git switch --create "\$branch" main/);
 assert.match(upstreamSync, /git merge --abort/);
 assert.match(upstreamSync, /grep -Fxq '\.circleci\/config\.yml'/);
 const syncVerifierIndex = upstreamSync.indexOf('node scripts/verify-gdng-ci.cjs');

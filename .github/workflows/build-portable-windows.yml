@@ -3,7 +3,7 @@ name: Build GDNG Windows portable
 on:
   push:
     branches:
-      - custom
+      - main
   workflow_dispatch:
     inputs:
       source_ref:

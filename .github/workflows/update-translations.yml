@@ -3,10 +3,10 @@
 
 name: Update translations
 on:
-  # Execute only on master
+  # Execute only on main
   push:
     branches:
-      - master
+      - main
     tags-ignore:
       - "**" # Don't run on new tags
   # Allows to run this workflow manually from the Actions tab.
