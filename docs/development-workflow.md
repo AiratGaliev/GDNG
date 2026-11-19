@@ -60,7 +60,7 @@ A normal push to `main` validates the candidate; it does not publish a release. 
 
 ## Upstream updates
 
-The upstream sync workflow opens a PR from `automation/upstream-<tag>` into `main`. These PRs are not merged automatically. Review the diff, check that GDNG-specific behavior and release workflows are preserved, and wait for the required checks before merging.
+The upstream sync workflow opens a PR from `automation/upstream-<tag>` into `main` and starts a Windows candidate build for that branch. These PRs are not merged automatically. Review the diff, check that GDNG-specific behavior and release workflows are preserved, and wait for the PR checks and candidate build to succeed before merging.
 
 Resolve conflicts deliberately. Do not accept either side of a conflict wholesale, especially for CI or release configuration.
 
