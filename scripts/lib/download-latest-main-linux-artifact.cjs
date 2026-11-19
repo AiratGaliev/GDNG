@@ -26,8 +26,8 @@ function runGh(args) {
     const detail = (result.stderr || result.stdout || (result.error && result.error.message) || '').trim();
     throw new Error(
       'GitHub CLI command failed: gh ' + args.join(' ') +
-      (detail ? '\\n' + detail : '') +
-      '\\nAuthenticate with gh auth login or provide GH_TOKEN with actions:read access.'
+      (detail ? '\n' + detail : '') +
+      '\nAuthenticate with gh auth login or provide GH_TOKEN with actions:read access.'
     );
   }
   return result.stdout;
@@ -44,8 +44,8 @@ function findPortableZip(directory) {
         pending.push(fullPath);
       } else if (
         entry.isFile() &&
-        /^gdng-.+\\.zip$/i.test(entry.name) &&
-        !/-arm64\\.zip$/i.test(entry.name)
+        /^gdng-.+\.zip$/i.test(entry.name) &&
+        !/-arm64\.zip$/i.test(entry.name)
       ) {
         matches.push(fullPath);
       }

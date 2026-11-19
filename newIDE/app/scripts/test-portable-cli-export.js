@@ -3,9 +3,8 @@
  * End-to-end smoke test for the GDevelop "portable" build + CLI export.
  *
  * What it does:
- *   1. Reads the current GDevelop version from
- *      `newIDE/electron-app/app/package.json` (the source of truth, same
- *      as `make-version-metadata.js`).
+ *   1. Gets a local Linux portable ZIP or downloads the latest successful
+ *      main build artifact through the GitHub CLI, then reads its version.
  *   2. Gets the matching Linux portable zip, either from a local path
  *      (via --zipPath, e.g. the artifact a build-linux job just produced)
  *      or by downloading the latest successful main build artifact via GitHub CLI.
