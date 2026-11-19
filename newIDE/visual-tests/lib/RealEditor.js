@@ -8,7 +8,7 @@ const AdmZip = require('adm-zip');
 const puppeteer = require('puppeteer');
 const {
   downloadLatestMainLinuxArtifact,
-} = require('../../../scripts/lib/download-latest-main-linux-artifact');
+} = require('../../../scripts/lib/download-latest-main-linux-artifact.cjs');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 

@@ -31,7 +31,7 @@ const AdmZip = require('adm-zip');
 const args = require('minimist')(process.argv.slice(2));
 const {
   downloadLatestMainLinuxArtifact,
-} = require('../../../scripts/lib/download-latest-main-linux-artifact');
+} = require('../../../scripts/lib/download-latest-main-linux-artifact.cjs');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
