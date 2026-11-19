@@ -551,8 +551,10 @@ assert.doesNotMatch(cliExport, /S3|s3/);
 
 const fastTriggers = extractTopLevelSection(fastCiWorkflow, 'on');
 assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?main/);
-assert.doesNotMatch(fastTriggers, /push:|schedule:|tags:/);
+assert.match(fastTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
+assert.doesNotMatch(fastTriggers, /schedule:|tags:/);
 assert.match(fastCiWorkflow, /cancel-in-progress: true/);
+assert.ok(fastCiWorkflow.includes('SEMAPHORE_GIT_PR_BRANCH: ${{ github.head_ref || github.ref_name }}'));
 const fastJobs = extractTopLevelSection(fastCiWorkflow, 'jobs');
 for (const jobName of [
   'build-wasm',

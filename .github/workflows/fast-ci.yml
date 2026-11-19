@@ -7,6 +7,11 @@ on:
     branches:
       - main
     types: [opened, synchronize, reopened, ready_for_review]
+  # Validate this CI migration branch directly so its new PR workflow can be
+  # exercised before the workflow file is present on the default branch.
+  push:
+    branches:
+      - ci/full-multiplatform-builds
 
 permissions:
   contents: read
@@ -274,8 +279,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SEMAPHORE_GIT_PR_BRANCH: ${{ github.head_ref }}
-      SEMAPHORE_GIT_BRANCH: ${{ github.head_ref }}
+      SEMAPHORE_GIT_PR_BRANCH: ${{ github.head_ref || github.ref_name }}
+      SEMAPHORE_GIT_BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
