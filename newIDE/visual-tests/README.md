@@ -50,6 +50,8 @@ Test files in `storybook-tests/` and `editor-tests/` export arrays of test cases
 A Storybook test uses a helper, a story and a sequence of actions:
 
 ```js
+const spriteEditor = require('../helpers/SpriteEditor');
+
 module.exports = [
   {
     name: 'sprite-editor/delete-animations',
@@ -63,8 +65,8 @@ module.exports = [
 ];
 ```
 
-Editor tests use the same helpers while driving the packaged application. Put editor-specific actions and checks in `helpers/`; keep shared browser and test-running logic in `lib/`.
+Editor tests use the same helpers while driving the packaged application. Put editor-specific actions and checks in `helpers/`; keep shared browser and test-running logic in `lib/`. Set `paths` on a test or helper to tell CI which source files it covers. Tests without watched paths run on every relevant CI run.
 
 Tests should verify both the action and its result. A test must fail when the editor reports an error, disappears, or does not reach the expected state.
 
-Known issues that are outside the scope of these tests are listed in `lib/KnownIssues.js`.
+Known unrelated issues are listed in `lib/KnownIssues.js`. They are reported but do not fail the run; remove an entry when the issue is fixed.
