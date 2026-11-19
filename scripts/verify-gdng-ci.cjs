@@ -254,8 +254,8 @@ for (const workflowName of requiredCircleWorkflows) {
 // consumes the same GDevelop.js artifact, and the publisher is gated by all
 // native, WebAssembly, IDE, CLI and visual checks.
 const ghaTriggers = extractTopLevelSection(releaseWorkflow, 'on');
-assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?main/);
-assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
+assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?test[\s\S]*?main/);
+assert.doesNotMatch(ghaTriggers, /ci\/full-multiplatform-builds/);
 assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
 assert.match(ghaTriggers, /pull_request:[\s\S]*?types:[\s\S]*?closed[\s\S]*?branches:[\s\S]*?main/);
 assert.match(ghaTriggers, /workflow_dispatch:/);
@@ -556,9 +556,8 @@ assert.match(visualRunner, /origin\/main/);
 assert.doesNotMatch(visualRunner, /origin\/master|gdevelop-branch/);
 
 const fastTriggers = extractTopLevelSection(fastCiWorkflow, 'on');
-assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?main/);
-assert.match(fastTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
-assert.doesNotMatch(fastTriggers, /schedule:|tags:/);
+assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?dev[\s\S]*?test[\s\S]*?main/);
+assert.doesNotMatch(fastTriggers, /push:|schedule:|tags:|ci\/full-multiplatform-builds/);
 assert.match(fastCiWorkflow, /cancel-in-progress: true/);
 assert.ok(fastCiWorkflow.includes('SEMAPHORE_GIT_PR_BRANCH: ${{ github.head_ref || github.ref_name }}'));
 const fastJobs = extractTopLevelSection(fastCiWorkflow, 'jobs');
@@ -568,9 +567,16 @@ for (const jobName of [
   'ide-fast-checks',
   'gdjs-fast-checks',
   'changed-storybook-tests',
+  'fast-checks',
 ]) {
   extractIndentedSection(fastJobs, jobName, 2);
 }
+const fastAggregateJob = extractIndentedSection(fastJobs, 'fast-checks', 2);
+assert.match(fastAggregateJob, /needs:[\s\S]*?build-wasm[\s\S]*?core-sanitizers[\s\S]*?ide-fast-checks[\s\S]*?gdjs-fast-checks[\s\S]*?changed-storybook-tests/);
+assert.match(fastAggregateJob, /if: always\(\)/);
+assert.match(fastAggregateJob, /BUILD_WASM_RESULT/);
+assert.match(fastAggregateJob, /CHANGED_STORYBOOK_RESULT/);
+assert.match(fastAggregateJob, /exit "\$failed"/);
 const fastWasmJob = extractIndentedSection(fastJobs, 'build-wasm', 2);
 assert.match(fastWasmJob, /emsdk install 3\.1\.21/);
 assert.match(fastWasmJob, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
@@ -597,7 +603,9 @@ for (const command of ['npm run check-types', 'npm run generate-doc', 'npm run c
   assert.ok(fastGdjsJob.includes(command), 'Fast GDJS checks must include ' + command);
 }
 const changedStorybookJob = extractIndentedSection(fastJobs, 'changed-storybook-tests', 2);
-assert.match(changedStorybookJob, /--only-changed --base-ref=origin\/main/);
+assert.ok(changedStorybookJob.includes("BASE_BRANCH: ${{ github.base_ref || 'main' }}"));
+assert.ok(changedStorybookJob.includes('git fetch --depth=50 origin "refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"'));
+assert.ok(changedStorybookJob.includes('--only-changed --base-ref="origin/$BASE_BRANCH"'));
 assert.match(changedStorybookJob, /has_tests=true/);
 assert.match(changedStorybookJob, /if: steps\.affected-tests\.outputs\.has_tests == 'true'/);
 assert.match(changedStorybookJob, /node run\.js --suite=storybook/);
