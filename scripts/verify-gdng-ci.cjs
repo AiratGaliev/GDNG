@@ -292,7 +292,6 @@ assert.doesNotMatch(
   'macOS hosted runners use externally managed Homebrew Python; do not install setuptools with system pip.'
 );
 assert.match(releaseWorkflow, /^permissions:\s*\n  contents: read/m);
-const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
 assert.match(windowsJob, /needs: \[build-editor\]/);
 assert.match(windowsJob, /--skip-app-build --win nsis --publish=never/);
 assert.match(windowsJob, /--skip-app-build --win zip --publish=never/);
