@@ -9,7 +9,7 @@
  *   node run.js --list
  *   node run.js --suite=storybook
  *   node run.js --suite=storybook --test=monkey --headful
- *   node run.js --suite=storybook --only-changed --base-ref=origin/master
+ *   node run.js --suite=storybook --only-changed --base-ref=origin/main
  *   node run.js --suite=editor --gdevelop-zip=../electron-app/dist/gdevelop.zip
  */
 
@@ -80,7 +80,7 @@ const main = async () => {
         .filter(Boolean)
     : null;
   const changedFiles = args['only-changed']
-    ? getChangedFiles(String(args['base-ref'] || 'origin/master'))
+    ? getChangedFiles(String(args['base-ref'] || 'origin/main'))
     : null;
 
   const getTestsOf = (suiteName, log) => {
@@ -121,7 +121,6 @@ const main = async () => {
     gdevelopZipPath: args['gdevelop-zip']
       ? path.resolve(String(args['gdevelop-zip']))
       : null,
-    gdevelopBranch: args['gdevelop-branch'] || 'master',
     editorMonkeySteps: Number(args['editor-monkey-steps'] || 30),
     workDirectory: path.resolve(String(args['work-dir'] || './work')),
   };

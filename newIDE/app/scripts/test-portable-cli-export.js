@@ -3,23 +3,18 @@
  * End-to-end smoke test for the GDevelop "portable" build + CLI export.
  *
  * What it does:
- *   1. Reads the current GDevelop version from
- *      `newIDE/electron-app/app/package.json` (the source of truth, same
- *      as `make-version-metadata.js`).
- *   2. Gets the matching Linux portable zip, either from a local path
- *      (via --zipPath, e.g. the artifact a build-linux job just produced)
- *      or by downloading it from S3.
- *   3. Extracts it with adm-zip.
- *   4. Sparse-clones an example game from the GDevelop-examples repository
- *      (defaults to "3d-platformer").
- *   5. Runs the extracted GDevelop binary in CLI mode with
+ *   1. Gets a Linux portable ZIP: from --zipPath or the latest successful
+ *      main build artifact downloaded through the GitHub CLI.
+ *   2. Reads the build version from the ZIP filename and extracts the app.
+ *   3. Sparse-clones an example game from GDevelop-examples (default:
+ *      "3d-platformer").
+ *   4. Runs the extracted binary in CLI mode with
  *      `--run-command EXPORT_HTML5_EXTERNAL` to export the game to HTML5.
- *   6. Verifies the exported HTML5 game looks valid (e.g. `index.html`
- *      exists) and zips it into the artifacts folder.
+ *   5. Verifies the HTML5 output and zips it into the artifacts folder.
  *
  * Usage:
- *   node test-portable-cli-export.js [--branch=master] [--example=3d-platformer]
- *                                    [--zipPath=/path/to/gdevelop-X.Y.Z.zip]
+ *   node test-portable-cli-export.js [--example=3d-platformer]
+ *                                    [--zipPath=/path/to/gdng-X.Y.Z.zip]
  *                                    [--workDir=./.portable-cli-test]
  *                                    [--artifactsDir=./portable-cli-artifacts]
  */
@@ -30,26 +25,22 @@ const { spawn } = require('child_process');
 const shell = require('shelljs');
 const AdmZip = require('adm-zip');
 const args = require('minimist')(process.argv.slice(2));
-const { downloadLocalFile } = require('./lib/DownloadLocalFile');
-const { retryIfFailed } = require('./lib/RetryIfFailed');
+const {
+  downloadLatestMainLinuxArtifact,
+} = require('../../../scripts/lib/download-latest-main-linux-artifact.cjs');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
-const branch = args['branch'] || 'master';
 const exampleSlug = args['example'] || '3d-platformer';
 const workDir = path.resolve(args['workDir'] || './.portable-cli-test');
 const artifactsDir = path.resolve(
   args['artifactsDir'] || './portable-cli-artifacts'
 );
-// If set, use this local zip instead of downloading from S3 (useful when
-// running the smoke test right after a build-linux job that already produced
-// the portable zip on disk).
+// If set, use this local zip instead of downloading the latest successful main
+// build artifact (useful when the smoke test runs immediately after build-linux).
 const localZipPath = args['zipPath'] ? path.resolve(args['zipPath']) : null;
 
-const version = electronAppPackageJson.version;
-const pathToArtifacts = `https://gdevelop-releases.s3.amazonaws.com/${branch}/latest`;
-const portableZipName = `gdevelop-${version}.zip`;
-const portableZipUrl = `${pathToArtifacts}/${portableZipName}`;
+let version = electronAppPackageJson.version;
 
 const EXAMPLES_REPO = 'https://github.com/GDevelopApp/GDevelop-examples.git';
 const EXAMPLES_BRANCH = 'main';
@@ -64,17 +55,14 @@ const fail = msg => {
 };
 
 (async () => {
-  shell.echo(`ℹ️ GDevelop version (from electron-app/app/package.json): ${version}`);
-  shell.echo(`ℹ️ Branch: ${branch} — example: ${exampleSlug}`);
+  shell.echo(`ℹ️ Example: ${exampleSlug}`);
   shell.echo(`ℹ️ Work dir:      ${workDir}`);
   shell.echo(`ℹ️ Artifacts dir: ${artifactsDir}`);
 
   shell.mkdir('-p', workDir);
   shell.mkdir('-p', artifactsDir);
 
-  // 1. Get the Linux portable zip — either from a local path passed in via
-  //    --zipPath (e.g. when chained after a build-linux job) or by
-  //    downloading the latest version from S3.
+  // 1. Get the Linux portable ZIP from the current build or the latest main artifact.
   let portableZipPath;
   if (localZipPath) {
     if (!fs.existsSync(localZipPath)) {
@@ -87,18 +75,14 @@ const fail = msg => {
       )})`
     );
   } else {
-    portableZipPath = path.join(workDir, portableZipName);
-    shell.echo(`🌐 Downloading ${portableZipUrl} ...`);
-    await retryIfFailed(
-      { times: 3, backoff: { initialDelay: 2000, factor: 2 } },
-      () => downloadLocalFile(portableZipUrl, portableZipPath)
-    );
-    shell.echo(
-      `✅ Downloaded ${portableZipName} (${formatBytes(
-        fs.statSync(portableZipPath).size
-      )})`
-    );
+    portableZipPath = downloadLatestMainLinuxArtifact({
+      outputDirectory: workDir,
+      log: message => shell.echo(message),
+    });
   }
+  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\.zip$/i);
+  if (versionMatch) version = versionMatch[1];
+  shell.echo(`ℹ️ GDNG version: ${version}`);
 
   // 2. Extract the portable zip.
   const extractedDir = path.join(workDir, `gdevelop-${version}`);
@@ -190,7 +174,7 @@ const fail = msg => {
  * @returns {string|null}
  */
 function findExecutable(root) {
-  const candidates = ['gdevelop', 'GDevelop'];
+  const candidates = ['gdng', 'GDNG', 'gdevelop', 'GDevelop'];
   /** @type {string[]} */
   const stack = [root];
   while (stack.length) {

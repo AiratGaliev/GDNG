@@ -30,7 +30,7 @@ npm install                             # also downloads the Chrome to run in
 
 node run.js --list
 node run.js --suite=storybook           # builds Storybook if needed, then runs
-node run.js --suite=editor              # downloads the latest portable build
+node run.js --suite=editor              # downloads the latest successful main build (requires gh auth)
 node run.js --suite=all
 ```
 
@@ -42,7 +42,6 @@ node run.js --suite=all
 | `--storybook-url=<url>` | Use a Storybook already running instead of building |
 | `--rebuild-storybook` | Rebuild Storybook even if already built |
 | `--gdevelop-zip=<path>` | Use this portable build instead of downloading one |
-| `--gdevelop-branch=<branch>` | Download the latest portable build of this branch |
 | `--editor-monkey-steps=<n>` | Manipulations of a random session on the real app |
 | `--artifacts-dir=<path>` | Where screenshots and logs go (default: `artifacts`) |
 | `--chrome-path=<path>` | The Chrome to run in |
@@ -53,13 +52,19 @@ node run.js --suite=all
 On a branch, the CI only runs the tests related to what it changes (and builds
 nothing if there are none): each helper declares the sources its tests watch, in
 its `paths`, and changing the tests themselves relates every test. Everything
-runs on `master` - a change anywhere else can break an editor too - and
+runs on `main` - a change anywhere else can break an editor too - and
 `run-all-visual-tests` on a pipeline forces that on a branch.
 
 Both suites work this way, with one difference: on a branch, the editor suite
-runs against the latest portable build of `master` (a branch builds no app), so
+runs against the latest successful Linux build artifact from `main` (a branch builds no app), so
 it exercises the tests of the branch, but not its changes to the app itself -
-those are tested by the same suite on `master`, right after `build-linux`.
+those are tested by the same suite on `main`, right after `build-linux`.
+
+Running the editor suite without `--gdevelop-zip` requires the GitHub CLI
+(`gh`) installed and authenticated for `AiratGaliev/GDNG` (`gh auth login`).
+The runner selects the latest successful `release-multiplatform.yml` run on
+`main` with an unexpired `gdng-release-linux` artifact. In CI, pass the
+locally built ZIP with `--gdevelop-zip` to avoid an API download.
 
 A problem these tests find but are not here to guard can be listed in
 `lib/KnownIssues.js`: it is then reported loudly without failing the run, so

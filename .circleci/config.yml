@@ -1,9 +1,6 @@
-# CircleCI configuration to build GDevelop app running
-# on the Electron runtime (newIDE/electron-app) for macOS and Linux.
-# For Windows, see the appveyor.yml file.
-
-# This also builds GDevelop.js and store it on a S3 so it can be used to run
-# GDevelop without building it from scratch.
+# CircleCI configuration for GDNG desktop builds (Windows, Linux and macOS).
+# The build graph follows upstream GDevelop, with fork-specific artifact flow.
+# GDevelop.js is built once and shared with Linux/Windows using a CircleCI workspace.
 
 # Note that these CircleCI builds/tests are not launched on Pull Requests from forks,
 # to avoid sharing secrets.
@@ -12,7 +9,7 @@ version: 2.1
 parameters:
   # Run *every* visual monkey test, even on a branch. Set it when triggering a
   # pipeline (CircleCI UI or API) to check everything without waiting for the
-  # change to land on `master`.
+  # change to land on `main`.
   run-all-visual-tests:
     type: boolean
     default: false
@@ -25,11 +22,67 @@ parameters:
     type: integer
     default: 2
 orbs:
-  aws-cli: circleci/aws-cli@2.0.6
   macos: circleci/macos@2.5.1 # For Rosetta (see below)
   node: circleci/node@7.1.0 # For a recent npm version (see below)
   win: circleci/windows@5.1.0
 commands:
+  # Write the checksum of the lock files of the dependencies, to be used in the
+  # key of their cache (`{{ checksum "ci-dependencies-checksum.txt" }}`).
+  # It must be computed before `npm install`: the install (and the postinstall
+  # running `npm install` in GDJS) rewrites the lock files, so a key computed
+  # from them would differ between `restore_cache` and `save_cache`, and the
+  # cache would never be found (only a stale fallback).
+  write-dependencies-checksum:
+    parameters:
+      lock-files:
+        type: string
+    steps:
+      - run:
+          name: Compute the checksum of the dependencies lock files
+          command: |
+            set -euo pipefail
+            for lock_file in << parameters.lock-files >>; do
+              test -f "$lock_file"
+              sha256sum "$lock_file"
+            done | sha256sum | cut -d ' ' -f1 > ci-dependencies-checksum.txt
+
+  # Install the Emscripten SDK, from the cache when possible. The cache also
+  # holds the system libraries (libc, libc++...) that Emscripten builds the
+  # first time they are linked, which are long to build.
+  # Use `save-emscripten-sdk` after the build to save it.
+  install-emscripten-sdk:
+    parameters:
+      cache-key:
+        type: string
+    steps:
+      - restore_cache:
+          name: Restore the Emscripten SDK
+          keys:
+            - << parameters.cache-key >>
+      - run:
+          name: Install Emscripten (for GDevelop.js)
+          # The downloads of the SDK sometimes fail: retry them.
+          command: |
+            if [ ! -d emsdk ]; then git clone https://github.com/juj/emsdk.git; fi
+            cd emsdk
+            for i in 1 2 3; do
+              ./emsdk install 3.1.21 && break
+              if [ $i -eq 3 ]; then exit 1; fi
+              echo "Installing the Emscripten SDK failed, retrying in 10 seconds..."
+              sleep 10
+            done
+            ./emsdk activate 3.1.21
+  save-emscripten-sdk:
+    parameters:
+      cache-key:
+        type: string
+    steps:
+      - save_cache:
+          name: Save the Emscripten SDK (with the system libraries it built)
+          key: << parameters.cache-key >>
+          paths:
+            - emsdk
+
   # Used by the visual monkey tests jobs on a "changed" scope: stop the job
   # (before anything expensive) when no test of the suite is related to what
   # the branch changes. A change to the tests themselves relates every test.
@@ -46,38 +99,57 @@ commands:
           name: Stop here if no test is related to the changes
           command: |
             if [ "<< parameters.scope >>" != "changed" ]; then exit 0; fi
-            git fetch --depth=50 origin master
+            git fetch --depth=50 origin main
             cd newIDE/visual-tests
             PUPPETEER_SKIP_DOWNLOAD=1 npm install --no-audit --no-fund --silent
-            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/master)" ]; then
+            if [ -z "$(node run.js --suite=<< parameters.suite >> --list-names --only-changed --base-ref=origin/main)" ]; then
               echo "No visual monkey test of the << parameters.suite >> suite is related to these changes."
               circleci-agent step halt
             fi
 jobs:
+  verify-gdng-ci:
+    docker:
+      - image: cimg/node:24.13.0
+    working_directory: ~/GDevelop
+    steps:
+      - checkout
+      - run:
+          name: Verify GDNG CI and release configuration
+          command: node scripts/verify-gdng-ci.cjs
+      - run:
+          name: Verify GDNG local feature policy
+          command: node scripts/verify-gdng-local-policy.cjs
+      - run:
+          name: Check JavaScript tooling syntax
+          command: |
+            node --check scripts/verify-gdng-ci.cjs
+            node --check scripts/publish-gdng-release.cjs
+            node --check newIDE/app/scripts/test-portable-cli-export.js
+
   # Build the **entire** app for macOS (including the GDevelop.js library).
   build-macos:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
     macos:
       xcode: 16.4.0
     resource_class: m4pro.medium
     steps:
       - checkout
-      # Install Rosetta for AWS CLI and disable TSO to speed up S3 uploads (https://support.circleci.com/hc/en-us/articles/19334402064027-Troubleshooting-slow-uploads-to-S3-for-jobs-using-an-m1-macOS-resource-class)
+      # Install Rosetta so the universal Electron build can include Intel binaries.
       - macos/install-rosetta
       # - run: sudo sysctl net.inet.tcp.tso=0
 
       # Install a recent version of npm to workaround a notarization issue because of a symlink made by npm: https://github.com/electron-userland/electron-builder/issues/7755
-      # Node.js v20.14.0 comes with npm v10.7.0.
+      # Keep the macOS build on the same supported Node.js line as the Linux CI.
       - node/install:
-          node-version: "20.14.0"
+          node-version: "24.13.0"
 
-      # System dependencies (for Emscripten and upload)
+      # System dependencies (for Emscripten)
       - run:
           name: Install dependencies for Emscripten
           command: brew install cmake
-
-      - run:
-          name: Install dependencies for AWS S3 upload
-          command: curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg" && sudo installer -pkg AWSCLIV2.pkg -target /
 
       - run:
           name: Install Emscripten (for GDevelop.js)
@@ -121,43 +193,26 @@ jobs:
 
       - run:
           name: Clean dist folder to keep only installers/binaries.
-          command: rm -rf "newIDE/electron-app/dist/mac-universal/GDevelop 5.app"
+          command: rm -rf "newIDE/electron-app/dist/mac-universal/GDNG.app"
 
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
 
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: |
-            export PATH=~/.local/bin:$PATH
-            for i in 1 2 3 4 5 6 7; do
-              aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/ && break
-              echo "Retry $i failed... retrying in 10 seconds"
-              sleep 10
-            done
-            if [ $i -eq 7 ]; then
-              echo "All retries for deployment failed!" >&2
-              exit 1
-            fi
-
-      - run:
-          name: Deploy to S3 (latest)
-          command: |
-            export PATH=~/.local/bin:$PATH
-            for i in 1 2 3 4 5 6 7; do
-              aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/latest/ && break
-              echo "Retry $i failed... retrying in 10 seconds"
-              sleep 10
-            done
-            if [ $i -eq 7 ]; then
-              echo "All retries for deployment failed!" >&2
-              exit 1
-            fi
-
-  # Build the app for Linux (using a pre-built GDevelop.js library).
-  build-linux:
+      - when:
+          condition: << parameters.publish-release-assets >>
+          steps:
+            - run:
+                name: Stage macOS GitHub Release assets
+                command: |
+                  mkdir -p release-artifacts/macos
+                  find newIDE/electron-app/dist -maxdepth 1 -type f -print0 | xargs -0 -I{} cp "{}" release-artifacts/macos/
+                  test -n "$(find release-artifacts/macos -maxdepth 1 -type f -print -quit)"
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - release-artifacts/macos
+  build-app-for-desktop:
     # CircleCI docker workers are failing if they don't have enough memory (no swap)
     resource_class: xlarge
     docker:
@@ -167,7 +222,84 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
+      - attach_workspace:
+          at: .
+
+      - write-dependencies-checksum:
+          lock-files: newIDE/app/package-lock.json GDJS/package-lock.json
+      - restore_cache:
+          keys:
+            - gd-linux-newide-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
+            # fallback to using the latest cache if no exact match is found
+            - gd-linux-newide-app-dependencies-v3-
+
+      # GDevelop IDE dependencies (using an exact version of GDevelop.js, built previously)
+      - run:
+          name: Install GDevelop IDE dependencies
+          command: export REQUIRES_EXACT_LIBGD_JS_VERSION=true && cd newIDE/app && npm install --no-audit --no-fund
+
+      - save_cache:
+          paths:
+            - newIDE/app/node_modules
+            - GDJS/node_modules
+          key: gd-linux-newide-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
+
+      # The cache of Babel (transpiled source files), restored after saving the
+      # dependencies so that it's not part of them. A new one is started every
+      # week, so that it does not grow forever with outdated files.
+      - run:
+          name: Compute the period of the build cache
+          command: date +%G-%V > ci-build-cache-period.txt
+      - restore_cache:
+          name: Restore the build cache
+          keys:
+            - gd-newide-app-build-cache-v1-{{ checksum "ci-build-cache-period.txt" }}-{{ .Revision }}
+            - gd-newide-app-build-cache-v1-{{ checksum "ci-build-cache-period.txt" }}-
+
+      # Build GDevelop IDE (seems like we need to allow Node.js to use more space than usual)
+      - run:
+          name: Build GDevelop IDE
+          environment:
+            # No source maps: they doubled the size of the app (and of the installers)
+            # and the build time, while nothing uses them in the desktop app.
+            GENERATE_SOURCEMAP: 'false'
+            # The editor is already linted (`npm run lint`) by the Semaphore CI.
+            DISABLE_ESLINT_PLUGIN: 'true'
+          command: export NODE_OPTIONS="--max-old-space-size=7168" && cd newIDE/app && npm run build
+
+      - save_cache:
+          name: Save the build cache
+          key: gd-newide-app-build-cache-v1-{{ checksum "ci-build-cache-period.txt" }}-{{ .Revision }}
+          paths:
+            - newIDE/app/node_modules/.cache/babel-loader
+
+      # What the desktop app is made of (see newIDE/electron-app/scripts/app-build.js
+      # and electron-builder-config.js).
+      - persist_to_workspace:
+          root: .
+          paths:
+            - newIDE/app/build
+            - newIDE/app/resources/GDJS
+            - newIDE/app/public/libGD.js
+            - newIDE/app/public/libGD.wasm
+
+
+  build-linux:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
+    # CircleCI docker workers are failing if they don't have enough memory (no swap)
+    resource_class: xlarge
+    docker:
+      - image: cimg/node:24.13.0
+
+    working_directory: ~/GDevelop
+
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
 
       # System dependencies (for Electron Builder)
       - run:
@@ -178,29 +310,27 @@ jobs:
           name: Install system dependencies for Electron builder
           command: sudo apt install icnsutils && sudo apt install graphicsmagick && sudo apt install rsync
 
+      - write-dependencies-checksum:
+          lock-files: newIDE/electron-app/package-lock.json newIDE/electron-app/app/package-lock.json
       - restore_cache:
           keys:
-            - gd-linux-nodejs-dependencies-v2-{{ checksum "newIDE/app/package.json" }}-{{ checksum "newIDE/electron-app/package.json" }}-{{ checksum "GDevelop.js/package.json" }}-{{ checksum "GDJS/package-lock.json" }}
+            - gd-linux-electron-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
             # fallback to using the latest cache if no exact match is found
-            - gd-linux-nodejs-dependencies-v2-
+            - gd-linux-electron-app-dependencies-v3-
 
-      # GDevelop IDE dependencies (using an exact version of GDevelop.js, built previously)
       - run:
-          name: Install GDevelop IDE dependencies
-          command: export REQUIRES_EXACT_LIBGD_JS_VERSION=true && cd newIDE/app && npm install && cd ../electron-app && npm install
+          name: Install Electron app dependencies
+          command: cd newIDE/electron-app && npm install --no-audit --no-fund
 
       - save_cache:
           paths:
             - newIDE/electron-app/node_modules
-            - newIDE/app/node_modules
-            - GDevelop.js/node_modules
-            - GDJS/node_modules
-          key: gd-linux-nodejs-dependencies-v2-{{ checksum "newIDE/app/package.json" }}-{{ checksum "newIDE/electron-app/package.json" }}-{{ checksum "GDevelop.js/package.json" }}-{{ checksum "GDJS/package-lock.json" }}
+            - newIDE/electron-app/app/node_modules
+          key: gd-linux-electron-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
 
-      # Build GDevelop IDE (seems like we need to allow Node.js to use more space than usual)
       - run:
           name: Build GDevelop IDE
-          command: export NODE_OPTIONS="--max-old-space-size=7168" && cd newIDE/electron-app && npm run build -- --linux --publish=never
+          command: cd newIDE/electron-app && node scripts/app-build.js --skip-app-build && node scripts/build.js --skip-app-build --linux --publish=never
 
       - run:
           name: Clean dist folder to keep only installers/binaries.
@@ -217,27 +347,22 @@ jobs:
           name: Stage portable zip for downstream cli-html5-export-linux job
           command: |
             mkdir -p build-linux-workspace
-            for f in newIDE/electron-app/dist/gdevelop-*.zip; do
+            for f in newIDE/electron-app/dist/gdng-*.zip; do
               case "$f" in
                 *arm64*) ;;
                 *) cp "$f" build-linux-workspace/ ;;
               esac
             done
+            if [ "<< parameters.publish-release-assets >>" = "true" ]; then
+              mkdir -p build-linux-workspace/release-artifacts/linux
+              find newIDE/electron-app/dist -maxdepth 1 -type f -print0 | xargs -0 -I{} cp "{}" build-linux-workspace/release-artifacts/linux/
+              test -n "$(find build-linux-workspace/release-artifacts/linux -maxdepth 1 -type f -print -quit)"
+            fi
             ls -lh build-linux-workspace
       - persist_to_workspace:
           root: build-linux-workspace
           paths:
             - .
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/
-      - run:
-          name: Deploy to S3 (latest)
-          command: aws s3 sync newIDE/electron-app/dist s3://gdevelop-releases/$(git rev-parse --abbrev-ref HEAD)/latest/
-
-  # Build the WebAssembly library only (so that it's cached on a S3 and easy to re-use).
   build-gdevelop_js-wasm-only:
     resource_class: medium+ # Compilation time decrease linearly with the number of CPUs, but not linking (so "large" does not speedup total build time).
     docker:
@@ -247,16 +372,14 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
 
       # System dependencies (for Emscripten)
       - run:
           name: Install dependencies for Emscripten
           command: sudo apt-get update && sudo apt install cmake ccache
 
-      - run:
-          name: Install Emscripten (for GDevelop.js)
-          command: git clone https://github.com/juj/emsdk.git && cd emsdk && ./emsdk install 3.1.21 && ./emsdk activate 3.1.21 && cd ..
+      - install-emscripten-sdk:
+          cache-key: emsdk-3.1.21-linux-v1
 
       # GDevelop.js dependencies
       - restore_cache:
@@ -301,6 +424,9 @@ jobs:
           name: Run GDevelop.js tests
           command: cd GDevelop.js && source ../emsdk/emsdk_env.sh && npm test -- --runInBand && cd ..
 
+      - save-emscripten-sdk:
+          cache-key: emsdk-3.1.21-linux-v1
+
       - save_cache:
           paths:
             - GDevelop.js/node_modules
@@ -309,16 +435,10 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: Binaries/embuild/GDevelop.js
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/commit/$(git rev-parse HEAD)/
-      - run:
-          name: Deploy to S3 (latest)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/latest/
-
-  # Build the WebAssembly library with clang-tidy and memory sanitizers.
+      - persist_to_workspace:
+          root: .
+          paths:
+            - Binaries/embuild/GDevelop.js
   build-gdevelop_js-debug-sanitizers-and-extra-checks:
     resource_class: xlarge # Total time decrease linearly with the number of CPUs.
     docker:
@@ -328,20 +448,25 @@ jobs:
 
     steps:
       - checkout
-      - aws-cli/setup
 
       # System dependencies (for Emscripten)
       - run:
           name: Install dependencies for Emscripten
-          command: sudo apt-get update && sudo apt install cmake
+          command: sudo apt-get update && sudo apt install cmake ccache
 
       - run:
           name: Install dependencies for clang-tidy v19
           command: wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 19 && sudo apt install clang-tidy-19
 
-      - run:
-          name: Install Emscripten (for GDevelop.js)
-          command: git clone https://github.com/juj/emsdk.git && cd emsdk && ./emsdk install 3.1.21 && ./emsdk activate 3.1.21 && cd ..
+      - install-emscripten-sdk:
+          cache-key: emsdk-3.1.21-linux-debug-sanitizers-v1
+
+      - restore_cache:
+          name: Restore ccache (Emscripten, debug-sanitizers)
+          keys:
+            - gdevelop.js-emscripten-debug-sanitizers-ccache-v1-{{ .Branch }}-{{ .Revision }}
+            - gdevelop.js-emscripten-debug-sanitizers-ccache-v1-{{ .Branch }}-
+            - gdevelop.js-emscripten-debug-sanitizers-ccache-v1-
 
       # GDevelop.js dependencies
       - restore_cache:
@@ -357,7 +482,20 @@ jobs:
       # Build GDevelop.js
       - run:
           name: Build GDevelop.js ('debug-sanitizers' variant)
-          command: cd GDevelop.js && source ../emsdk/emsdk_env.sh && npm run build -- --variant=debug-sanitizers
+          command: |
+            export CMAKE_C_COMPILER_LAUNCHER=ccache
+            export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+            cd GDevelop.js && source ../emsdk/emsdk_env.sh && npm run build -- --variant=debug-sanitizers
+            ccache --show-stats
+
+      - save_cache:
+          name: Save ccache (Emscripten, debug-sanitizers)
+          key: gdevelop.js-emscripten-debug-sanitizers-ccache-v1-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - ~/.cache/ccache
+
+      - save-emscripten-sdk:
+          cache-key: emsdk-3.1.21-linux-debug-sanitizers-v1
 
       - run:
           name: Run clang-tidy
@@ -376,17 +514,6 @@ jobs:
       # Upload artifacts (CircleCI)
       - store_artifacts:
           path: Binaries/embuild/GDevelop.js
-
-      # Upload artifacts (AWS)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: aws s3 sync Binaries/embuild/GDevelop.js s3://gdevelop-gdevelop.js/$(git rev-parse --abbrev-ref HEAD)/variant/debug-sanitizers/commit/$(git rev-parse HEAD)/
-
-  # Build and run the native GDCore_tests with AddressSanitizer + UBSan, to
-  # catch heap-use-after-free, buffer overflows and undefined behaviour that
-  # only sometimes manifest as flaky segfaults. 
-  # The Emscripten build has its own sanitizer job:
-  # build-gdevelop_js-debug-sanitizers-and-extra-checks.
   build-gdcore-tests-sanitizers:
     resource_class: medium+
     docker:
@@ -450,227 +577,111 @@ jobs:
             export UBSAN_OPTIONS=print_stacktrace=1
             Core/GDCore_tests
 
-  # Trigger AppVeyor build, which also does a Windows build (keep it for redundancy).
-  trigger-appveyor-windows-build:
-    docker:
-      - image: cimg/base:current
-    steps:
-      - run:
-          name: Trigger AppVeyor Windows build
-          command: |
-            curl -H "Content-Type: application/json" \
-                 -H "Authorization: Bearer ${APPVEYOR_API_KEY}" \
-                 --data "{
-                   \"accountName\": \"4ian\",
-                   \"projectSlug\": \"gdevelop\",
-                   \"branch\": \"${CIRCLE_BRANCH}\"
-                 }" \
-                 -X POST https://ci.appveyor.com/api/builds
-
   build-windows:
+    parameters:
+      publish-release-assets:
+        type: boolean
+        default: false
     executor:
       name: win/default
       size: medium
     working_directory: /home/circleci/project
     steps:
       - checkout
+      - attach_workspace:
+          at: .
       - run:
-          # See https://www.ssl.com/how-to/how-to-integrate-esigner-cka-with-ci-cd-tools-for-automated-code-signing/
-          #
-          # This is necessary because of "signing to be FIPS-140 compliant". See
-          # https://github.com/electron-userland/electron-builder/issues/6158
-          #
-          # Make sure to DISABLE "malware blocker" in SSL.com to avoid errors like:
-          # Error information: "Error: SignerSign() failed." (-2146893821/0x80090003)
-          name: Download and Unzip eSignerCKA Setup
-          command: |
-
-            Invoke-WebRequest -OutFile eSigner_CKA_1.0.3.zip "https://www.ssl.com/download/ssl-com-esigner-cka-1-0-3"
-
-            Expand-Archive -Force eSigner_CKA_1.0.3.zip
-
-            Remove-Item eSigner_CKA_1.0.3.zip
-
-            Move-Item -Destination "eSigner_CKA_1.0.3.exe" -Path "eSigner_CKA_*\*.exe"
-      - run:
-          name: Setup eSignerCKA in Silent Mode
-          command: |
-
-            mkdir -p "/home/circleci/project/eSignerCKA"
-
-            ./eSigner_CKA_1.0.3.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /DIR="/home/circleci/project/eSignerCKA" | Out-Null
-      - run:
-          name: Config Account Information on eSignerCKA
-          command: |
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe config -mode product -user "$env:ESIGNER_USER_NAME" -pass "$env:ESIGNER_USER_PASSWORD" -totp "$env:ESIGNER_USER_TOTP" -key "/home/circleci/project/eSignerCKA/master.key" -r
-      - run:
-          name: Load Certificate into Windows Store
-          command: |
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe unload
-
-            /home/circleci/project/eSignerCKA/eSignerCKATool.exe load
-      - run:
-          name: Select Certificate From Windows Store and Sign Sample File with SignTool
-          command: |
-
-            $CodeSigningCert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-
-            echo Certificate: $CodeSigningCert
+          name: Compute the checksum of the Electron app dependency lock files
+          command: Get-Content newIDE\electron-app\package-lock.json, newIDE\electron-app\app\package-lock.json | Set-Content ci-dependencies-checksum.txt
 
       - restore_cache:
-          name: Restore node_modules cache
+          name: Restore Electron app dependencies cache
           keys:
-            - v2-win-node-{{ checksum "newIDE/app/package-lock.json" }}-{{ checksum "newIDE/electron-app/package-lock.json" }}-{{ checksum "GDJS/package-lock.json" }}
-            - v2-win-node-
+            - v3-win-electron-app-node-{{ checksum "ci-dependencies-checksum.txt" }}
+            - v3-win-electron-app-node-
 
       - run:
-          name: Install dependencies
+          name: Install Electron application dependencies
           no_output_timeout: 25m
-          # Remove package-lock.json because they seems to cause the npm install to be stuck. We should try again after re-generating them.
-          # Also install setuptools as something requires distutils in electron-app, and it was removed in Python 3.12.
-          # setuptools will make distutils available again (but we should migrate our packages probably).
           command: |
+            # setuptools provides distutils required by native Electron dependencies on Python 3.12+.
             pip install setuptools
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-            cd newIDE\app
-
-            npm -v
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
+            cd newIDE\electron-app
+            # Keep the upstream workaround: npm install can stall on this lock file in Windows CI.
             Remove-Item package-lock.json
-
-            $Env:REQUIRES_EXACT_LIBGD_JS_VERSION = "true"
-
-            npm install
+            npm install --no-audit --no-fund
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-            cd ..\electron-app
-
-            Remove-Item package-lock.json
-
-            npm install
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
             cd ..\..
 
       - save_cache:
-          name: Save node_modules cache
-          key: v2-win-node-{{ checksum "newIDE/app/package-lock.json" }}-{{ checksum "newIDE/electron-app/package-lock.json" }}-{{ checksum "GDJS/package-lock.json" }}
+          name: Save Electron app dependencies cache
+          key: v3-win-electron-app-node-{{ checksum "ci-dependencies-checksum.txt" }}
           paths:
-            - newIDE/app/node_modules
             - newIDE/electron-app/node_modules
-            - GDJS/node_modules
+            - newIDE/electron-app/app/node_modules
 
       - run:
-          name: Build NSIS executable (with code signing)
+          name: Copy the shared editor build into the Electron application
           command: |
             cd newIDE\electron-app
-
-            $CodeSigningCert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object -First 1
-
-            echo Certificate: $CodeSigningCert
-
-            # Use a custom signtool path because of the signtool.exe bundled withy electron-builder not working for some reason.
-            # Can also be found in versioned folders like "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22000.0/x86/signtool.exe".
-            # or "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x86\signtool.exe".
-
-            $Env:SIGNTOOL_PATH = "C:\Program Files (x86)\Windows Kits\10\App Certification Kit\signtool.exe"
-
-            # Extract thumbprint and subject name of the certificate (will be passed to electron-builder).
-
-            $Env:GD_SIGNTOOL_THUMBPRINT = $CodeSigningCert.Thumbprint
-
-            $Env:GD_SIGNTOOL_SUBJECT_NAME = ($CodeSigningCert.Subject -replace ", ?", "`n" | ConvertFrom-StringData).CN
-
-            # Build the nsis installer (signed: electron-builder will use SignTool.exe with the certificate)
-
-            node scripts/build.js --win nsis --publish=never
-
+            node scripts/app-build.js --skip-app-build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cd ..\..
+
       - run:
-          name: Build AppX (without code signing)
-          # Don't sign the appx (it will be signed by the Microsoft Store).
+          name: Build unsigned NSIS installer
           command: |
             cd newIDE\electron-app
-
-            # Build the appx (not signed). Ensure all variables used for code signing are empty.
-
-            $Env:GD_SIGNTOOL_THUMBPRINT = ''
-
-            $Env:GD_SIGNTOOL_SUBJECT_NAME = ''
-
-            $Env:CSC_LINK = ''
-
-            $Env:CSC_KEY_PASSWORD = ''
-
-            node scripts/build.js --skip-app-build --win appx --publish=never
-
+            node scripts/build.js --skip-app-build --win nsis --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cd ..\..
+
       - run:
-          name: Build portable zip (without code signing)
+          name: Build portable ZIP (without code signing)
           command: |
             cd newIDE\electron-app
-
             $Env:GD_SIGNTOOL_THUMBPRINT = ''
-
             $Env:GD_SIGNTOOL_SUBJECT_NAME = ''
-
             $Env:CSC_LINK = ''
-
             $Env:CSC_KEY_PASSWORD = ''
-
             $Env:GD_PORTABLE_BUILD = 'true'
-
             node scripts/build.js --skip-app-build --win zip --publish=never
-
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             cd ..\..
 
       - run:
           name: Clean binaries
           shell: cmd.exe
-          command: |
-            rmdir /s /q newIDE\electron-app\dist\win-unpacked
+          command: rmdir /s /q newIDE\electron-app\dist\win-unpacked
 
-      - run:
-          name: Install AWS CLI
-          command: |
-            # Install the CLI for the current user
-
-            pip install --quiet --upgrade --user awscli
-
-            # Add the user-Scripts dir to PATH for this step and the next.
-
-            $binDir = (python -m site --user-base) + "\Scripts"
-            $Env:Path += ";$binDir"
-
-            # Sanity check:
-            aws --version
-
-      # Upload artifacts (S3)
-      - run:
-          name: Deploy to S3 (specific commit)
-          command: |
-            aws s3 sync newIDE\electron-app\dist "s3://gdevelop-releases/$Env:CIRCLE_BRANCH/commit/$Env:CIRCLE_SHA1/"
-
-      - run:
-          name: Deploy to S3 (latest)
-          command: |
-            aws s3 sync newIDE\electron-app\dist "s3://gdevelop-releases/$Env:CIRCLE_BRANCH/latest/"
-
-      # Upload artifacts (CircleCI)
       - store_artifacts:
           path: newIDE/electron-app/dist
 
+      - when:
+          condition: << parameters.publish-release-assets >>
+          steps:
+            - run:
+                name: Stage Windows GitHub Release assets
+                command: |
+                  New-Item -ItemType Directory -Force release-artifacts\windows | Out-Null
+                  Get-ChildItem newIDE\electron-app\dist -File | Copy-Item -Destination release-artifacts\windows
+                  if (-not (Get-ChildItem release-artifacts\windows -File)) {
+                    throw "No Windows release assets were staged."
+                  }
+            - persist_to_workspace:
+                root: .
+                paths:
+                  - release-artifacts/windows
+
   # End-to-end test that runs the GDevelop CLI to export an example game
   # to HTML5, using either the portable Linux build just produced by
-  # build-linux (use-local-build=true) or the latest one downloaded from S3.
+  # build-linux (use-local-build=true) or a published GDNG GitHub Release.
   run-cli-html5-export-linux:
     parameters:
       use-local-build:
-        description: When true, attach the workspace produced by build-linux and use its portable zip instead of downloading the latest one from S3.
+        description: When true, attach the workspace produced by build-linux and use its portable zip.
         type: boolean
         default: false
     resource_class: medium
@@ -732,7 +743,7 @@ jobs:
           command: |
             export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdevelop-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdng-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in build-linux workspace." >&2
                 exit 1
@@ -740,8 +751,8 @@ jobs:
               echo "Using locally built portable zip: $ZIP_PATH"
               EXTRA_ARGS="--zipPath=$ZIP_PATH"
             else
-              echo "No local build available; will download the latest portable zip from S3."
-              EXTRA_ARGS="--branch=master"
+              echo "No local build available; using the published GDNG release archive."
+              EXTRA_ARGS="--branch=main"
             fi
             xvfb-run -a --server-args="-screen 0 1280x800x24" \
               node newIDE/app/scripts/test-portable-cli-export.js \
@@ -781,15 +792,25 @@ jobs:
           scope: << parameters.scope >>
           suite: 'storybook'
 
+      - write-dependencies-checksum:
+          lock-files: newIDE/app/package-lock.json GDJS/package-lock.json
       - restore_cache:
           keys:
-            - gd-linux-nodejs-dependencies-v2-{{ checksum "newIDE/app/package.json" }}-{{ checksum "newIDE/electron-app/package.json" }}-{{ checksum "GDevelop.js/package.json" }}-{{ checksum "GDJS/package-lock.json" }}
-            # fallback to using the latest cache if no exact match is found
-            - gd-linux-nodejs-dependencies-v2-
+            - gd-linux-newide-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
+            - gd-linux-newide-app-dependencies-v3-
 
+      # Storybook tests exercise editor UI changes and use the latest compatible
+      # runtime, just as upstream does. Exact Core/WASM validation remains in the
+      # main build graph and the GDNG release workflow.
       - run:
           name: Install GDevelop IDE dependencies
-          command: cd newIDE/app && npm install
+          command: cd newIDE/app && npm install --no-audit --no-fund
+
+      - save_cache:
+          paths:
+            - newIDE/app/node_modules
+            - GDJS/node_modules
+          key: gd-linux-newide-app-dependencies-v3-{{ checksum "ci-dependencies-checksum.txt" }}
 
       - run:
           name: Build Storybook
@@ -870,7 +891,7 @@ jobs:
           command: |
             cd newIDE/visual-tests
             if [ "<< parameters.scope >>" = "changed" ]; then
-              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/master > /tmp/tests.txt
+              node run.js --suite=storybook --list-names --only-changed --base-ref=origin/main > /tmp/tests.txt
             else
               node run.js --suite=storybook --list-names > /tmp/tests.txt
             fi
@@ -915,14 +936,10 @@ jobs:
           name: Report whether the visual monkey tests passed
           command: exit "$(cat /tmp/visual-tests-exit-code)"
 
-  # Visual monkey tests, "editor" suite: smoke tests using a real, packaged
-  # version of the app (like run-cli-html5-export-linux does) opening a real
-  # example game.
-  #
-  # Without a local build (so on a branch), the tests run against the latest
-  # portable build of `master` on S3: they then exercise the tests of the
-  # branch, not its changes to the app itself - those are only tested by the
-  # jobs following build-linux, on the branches building the app.
+  # Visual monkey tests, "editor" suite: smoke tests using the portable GDNG
+  # Linux package created by build-linux, opening a real example game.
+  # This job is scheduled only with use-local-build=true; there is no
+  # upstream S3 or GDevelop master fallback in the fork.
   run-visual-monkey-tests-editor-linux:
     parameters:
       scope:
@@ -933,7 +950,7 @@ jobs:
         enum: ['all', 'changed']
         default: 'all'
       use-local-build:
-        description: When true, attach the workspace produced by build-linux and use its portable zip instead of downloading the latest one from S3.
+        description: Attach and test the GDNG portable ZIP produced by build-linux.
         type: boolean
         default: false
     resource_class: medium
@@ -986,7 +1003,7 @@ jobs:
             set +e
             cd newIDE/visual-tests
             if [ "<< parameters.use-local-build >>" = "true" ]; then
-              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdevelop-*.zip | grep -v -- '-arm64' | head -1)
+              ZIP_PATH=$(ls ~/GDevelop/build-linux-workspace/gdng-*.zip | grep -v -- '-arm64' | head -1)
               if [ -z "$ZIP_PATH" ]; then
                 echo "No portable zip found in the build-linux workspace." >&2
                 exit 1
@@ -994,11 +1011,11 @@ jobs:
               echo "Using the locally built portable zip: $ZIP_PATH"
               EXTRA_ARGS="--gdevelop-zip=$ZIP_PATH"
             else
-              echo "No local build available; the latest portable zip of master will be downloaded."
-              EXTRA_ARGS="--gdevelop-branch=master"
+              echo "A local GDNG package is required for this visual test." >&2
+              exit 1
             fi
             if [ "<< parameters.scope >>" = "changed" ]; then
-              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/master"
+              EXTRA_ARGS="$EXTRA_ARGS --only-changed --base-ref=origin/main"
             fi
             xvfb-run -a --server-args="-screen 0 1500x1000x24" \
               node run.js --suite=editor $EXTRA_ARGS \
@@ -1017,6 +1034,10 @@ jobs:
           command: exit "$(cat /tmp/visual-tests-exit-code)"
 
 workflows:
+  ci-validation:
+    jobs:
+      - verify-gdng-ci
+
   gdevelop_js-wasm-extra-checks:
     jobs:
       - build-gdevelop_js-debug-sanitizers-and-extra-checks:
@@ -1024,9 +1045,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
+                - main
   tests:
     jobs:
       - build-gdcore-tests-sanitizers
@@ -1042,18 +1061,21 @@ workflows:
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
-      - build-linux:
+                - main
+      - build-app-for-desktop:
           requires:
             - build-gdevelop_js-wasm-only
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
+                - main
+      - build-linux:
+          requires:
+            - build-app-for-desktop
+          filters:
+            branches:
+              only:
+                - main
       # Right after build-linux, run the CLI HTML5 export against the
       # portable zip it just produced (via the attached workspace).
       - run-cli-html5-export-linux:
@@ -1064,9 +1086,7 @@ workflows:
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
+                - main
       # Right after build-linux, run the visual monkey tests of the real
       # editor against the portable zip it just produced.
       - run-visual-monkey-tests-editor-linux:
@@ -1077,31 +1097,17 @@ workflows:
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
+                - main
       - build-windows:
           requires:
-            - build-gdevelop_js-wasm-only
+            - build-app-for-desktop
           filters:
             branches:
               only:
-                - master
-                - stable
-                - /experimental-build.*/
-      # Disabled as Windows builds are now done by CircleCI.
-      # - trigger-appveyor-windows-build:
-      #     requires:
-      #       - build-gdevelop_js-wasm-only
-      #     filters:
-      #       branches:
-      #         only:
-      #           - master
-      #           - stable
-      #           - /experimental-build.*/
+                - main
 
   # Daily end-to-end tests running against the latest portable build uploaded
-  # to S3 for master: the CLI HTML5 export, and the visual monkey tests
+  # using the locally built GDNG Linux package: the CLI HTML5 export, and the visual monkey tests
   # manipulating the editor. Runs every day at 16:00 UTC (4pm UTC).
   daily-end-to-end-tests:
     triggers:
@@ -1110,20 +1116,32 @@ workflows:
           filters:
             branches:
               only:
-                - master
+                - main
     jobs:
-      - run-cli-html5-export-linux
-      - run-visual-monkey-tests-editor-linux
+      - build-gdevelop_js-wasm-only
+      - build-app-for-desktop:
+          requires:
+            - build-gdevelop_js-wasm-only
+      - build-linux:
+          requires:
+            - build-app-for-desktop
+      - run-cli-html5-export-linux:
+          use-local-build: true
+          requires:
+            - build-linux
+      - run-visual-monkey-tests-editor-linux:
+          use-local-build: true
+          requires:
+            - build-linux
 
-  # On `master`/`stable` (or when explicitly asked for): manipulate the editors
-  # in a real browser and check that nothing is broken, with every test.
-  # (`master`, `stable` and the experimental builds also run the editor suite
-  # against the build build-linux just produced, in the main workflow.)
+  # On main (or when explicitly asked for): run all Storybook visual tests.
+  # The packaged-editor suite runs in the main multi-platform build workflow.
+  # Storybook is architecture-neutral and can use the latest compatible runtime,
+  # so it does not wait for the exact-commit WASM build on feature branches.
   all-visual-tests:
     when:
       or:
-        - equal: [master, << pipeline.git.branch >>]
-        - equal: [stable, << pipeline.git.branch >>]
+        - equal: [main, << pipeline.git.branch >>]
         - << pipeline.parameters.run-all-visual-tests >>
     jobs:
       - build-storybook-for-visual-tests:
@@ -1135,29 +1153,14 @@ workflows:
           parallelism: << pipeline.parameters.all-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-all
-      # On a branch forced with `run-all-visual-tests`: every test of the
-      # editor suite too, against the latest portable build of `master`.
-      - run-visual-monkey-tests-editor-linux:
-          name: visual-tests-editor-all
-          scope: 'all'
-          filters:
-            branches:
-              ignore:
-                - master
-                - stable
-                - /experimental-build.*/
 
-  # On a branch / Pull Request: only run the tests related to what it changes
-  # (nothing at all when it changes nothing related to them). The editor suite
-  # runs against the latest portable build of `master` (a branch builds no
-  # app), so it exercises the tests of the branch, not its changes to the app.
+  # Feature branches run only Storybook tests related to changed files.
+  # Full runtime and packaged-editor validation is performed on main.
   changed-visual-tests:
     when:
       and:
         - not:
-            equal: [master, << pipeline.git.branch >>]
-        - not:
-            equal: [stable, << pipeline.git.branch >>]
+            equal: [main, << pipeline.git.branch >>]
         - not: << pipeline.parameters.run-all-visual-tests >>
     jobs:
       - build-storybook-for-visual-tests:
@@ -1169,10 +1172,3 @@ workflows:
           parallelism: << pipeline.parameters.changed-visual-tests-parallelism >>
           requires:
             - visual-tests-storybook-build-changed
-      - run-visual-monkey-tests-editor-linux:
-          name: visual-tests-editor-changed
-          scope: 'changed'
-          filters:
-            branches:
-              ignore:
-                - /experimental-build.*/

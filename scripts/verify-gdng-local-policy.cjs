@@ -32,9 +32,7 @@ if (
   electronAppPackage.productName !== 'GDNG' ||
   !electronBuilder.includes("appId: 'com.gdng.editor'") ||
   !electronBuilder.includes("executableName: 'GDNG'") ||
-  !electronBuilder.includes(
-    "electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist')"
-  ) ||
+  electronBuilder.includes('electronDist:') ||
   !electronBuilder.includes("owner: 'AiratGaliev'") ||
   !electronBuilder.includes("repo: 'GDNG'") ||
   !electronMain.includes("app.setAppUserModelId('com.gdng.editor')") ||

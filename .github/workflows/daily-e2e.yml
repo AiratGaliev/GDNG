@@ -1,0 +1,143 @@
+name: Daily packaged-editor E2E
+
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gdng-daily-e2e
+  cancel-in-progress: false
+
+jobs:
+  find-latest-main-build:
+    name: Find latest successful main validation build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      run_id: ${{ steps.latest.outputs.run_id }}
+      source_sha: ${{ steps.latest.outputs.source_sha }}
+    steps:
+      - name: Resolve latest successful main validation run with a Linux artifact
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-multiplatform.yml/runs?branch=main&status=completed&per_page=100")"
+          run_id="$(jq -r '[.workflow_runs[] | select(.conclusion == "success" and .head_branch == "main")] | sort_by(.run_started_at) | last | .id // empty' <<< "$runs")"
+          source_sha="$(jq -r --argjson id "${run_id:-0}" '.workflow_runs[] | select(.id == $id) | .head_sha' <<< "$runs")"
+          if [[ -z "$run_id" || -z "$source_sha" ]]; then
+            echo "No successful main validation build was found." >&2
+            exit 1
+          fi
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts")"
+          artifact_id="$(jq -r '.artifacts[] | select(.name == "gdng-release-linux" and .expired == false) | .id' <<< "$artifacts" | head -n 1)"
+          if [[ -z "$artifact_id" ]]; then
+            echo "The latest successful main run $run_id has no unexpired gdng-release-linux artifact." >&2
+            exit 1
+          fi
+          echo "Using main validation run $run_id at $source_sha (artifact $artifact_id)."
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+  cli-html5-export:
+    name: CLI HTML5 export against latest main package
+    needs: [find-latest-main-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.find-latest-main-build.outputs.source_sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          run-id: ${{ needs.find-latest-main-build.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: release-artifacts
+      - name: Install Electron runtime and CLI smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+          mkdir -p cli-html5-export-deps
+          cd cli-html5-export-deps
+          npm init -y
+          npm install --no-audit --no-fund axios@^0.18.1 https-proxy-agent@^5.0.1 minimist@^1.2.5 shelljs@^0.8.4 adm-zip@^0.5.10
+      - name: Export example game with the latest main package
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
+          zip_path="$(find release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            node newIDE/app/scripts/test-portable-cli-export.js \
+              --zipPath="$PWD/$zip_path" \
+              --example=3d-platformer \
+              --workDir=./cli-html5-export-work \
+              --artifactsDir=./cli-html5-export-artifacts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-daily-cli-export-results
+          path: cli-html5-export-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  packaged-editor-visual-tests:
+    name: Real-editor visual tests against latest main package
+    needs: [find-latest-main-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.find-latest-main-build.outputs.source_sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: newIDE/visual-tests/package-lock.json
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          run-id: ${{ needs.find-latest-main-build.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: release-artifacts
+      - name: Install Electron runtime libraries and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+      - name: Install visual test dependencies
+        working-directory: newIDE/visual-tests
+        run: npm install --no-audit --no-fund
+      - name: Run real-editor visual tests
+        working-directory: newIDE/visual-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="$(find ../../release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1500x1000x24" \
+            node run.js --suite=editor \
+              --gdevelop-zip="$zip_path" \
+              --artifacts-dir=/tmp/visual-tests-artifacts \
+              --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-daily-editor-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7

@@ -27,10 +27,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Checkout GDNG custom branch
+      - name: Checkout GDNG main branch
         uses: actions/checkout@v7
         with:
-          ref: custom
+          ref: main
           fetch-depth: 0
           token: ${{ github.token }}
 
@@ -60,12 +60,12 @@ jobs:
 
           if git merge-base --is-ancestor "$tag" HEAD; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
-            echo "GDNG custom already contains $tag."
+            echo "GDNG main already contains $tag."
             exit 0
           fi
 
           branch="automation/upstream-$tag"
-          existing_pr="$(gh pr list --repo "$REPOSITORY" --base custom --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          existing_pr="$(gh pr list --repo "$REPOSITORY" --base main --head "$branch" --state open --json number --jq '.[0].number // empty')"
 
           if [[ -n "$existing_pr" ]]; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
@@ -75,15 +75,24 @@ jobs:
 
           # A closed PR may leave its old automation branch behind.
           git push origin --delete "$branch" 2>/dev/null || true
-          git switch --create "$branch" custom
+          git switch --create "$branch" main
 
           if ! git merge --no-edit --no-ff "$tag"; then
+            conflicts="$(git diff --name-only --diff-filter=U || true)"
+            if printf '%s\n' "$conflicts" | grep -Fxq '.circleci/config.yml'; then
+              echo "Upstream and GDNG both changed .circleci/config.yml." >&2
+              echo "Stopping without choosing either side: reconcile the upstream CI changes with the GDNG overlay first." >&2
+            fi
             git merge --abort
             echo "Upstream merge conflict for $tag. No branch or PR was published." >&2
             exit 1
           fi
 
-          git diff --check custom...HEAD
+          # A non-conflicting Git merge can still change CI behavior. Verify the
+          # fork-owned platform matrix and artifact flow before publishing an update PR.
+          node scripts/verify-gdng-ci.cjs
+
+          git diff --check main...HEAD
           git push --set-upstream origin "$branch"
 
           echo "needed=true" >> "$GITHUB_OUTPUT"
@@ -101,9 +110,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh pr create --repo "$REPOSITORY" --base custom --head "$BRANCH" --title "Update GDevelop upstream to $TAG" --body "## Upstream update
+          gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "Update GDevelop upstream to $TAG" --body "## Upstream update
 
-          Merges the official GDevelop release [$TAG](https://github.com/4ian/GDevelop/releases/tag/$TAG) into GDNG's `custom` branch.
+          Merges the official GDevelop release [$TAG](https://github.com/4ian/GDevelop/releases/tag/$TAG) into GDNG's `main` branch.
 
           The downstream local-feature policy is retained and checked by the Windows build workflow.
 

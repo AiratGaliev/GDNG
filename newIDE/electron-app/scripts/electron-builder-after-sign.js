@@ -12,7 +12,7 @@ exports.default = async function notarizing(context) {
   const appleId = process.env.APPLEID;
   const appleIdPassword = process.env.APPLEIDPASS;
   const appleTeamId = process.env.APPLETEAMID;
-  const appBundleId = 'com.gdevelop-app.ide';
+  const appBundleId = 'com.gdng.editor';
   const appName = context.packager.appInfo.productFilename;
   const appPath = path.join(appOutDir, `${appName}.app`);
 

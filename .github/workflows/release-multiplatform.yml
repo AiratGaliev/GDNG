@@ -1,0 +1,1081 @@
+name: Build and publish GDNG cross-platform release
+
+on:
+  push:
+    branches:
+      - main
+      - ci/full-multiplatform-builds
+    tags:
+      - 'gdng-v*'
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional exact GDNG release tag to validate (defaults to the current package version)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gdng-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || (github.event_name == 'push' && github.ref_name) || inputs.release_tag }}
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+  GDNG_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+
+jobs:
+  # Avoid running the full matrix for unrelated pull-request closures.
+  release-gate:
+    name: Route release build triggers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      should_build: ${{ steps.route.outputs.should_build }}
+    steps:
+      - name: Decide whether this event should build
+        id: route
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+          should_build=false
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            should_build=true
+          elif [[ "$EVENT_ACTION" == "closed" && "$PR_MERGED" == "true" && "$PR_HEAD_REPO" == "$GITHUB_REPOSITORY" && "$PR_HEAD_REF" == automation/upstream-* ]]; then
+            should_build=true
+          fi
+          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+          echo "Full release matrix enabled: $should_build"
+
+  verify:
+    name: IDE tests, types and GDNG policies
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - name: Install the official CircleCI CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -1sLf 'https://packages.circleci.com/public/setup.deb.sh' | sudo -E bash
+          sudo apt-get update
+          sudo apt-get install -y circleci
+      - name: Validate the upstream-derived CircleCI configuration
+        run: circleci config validate .circleci/config.yml
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            GDevelop.js/package-lock.json
+            GDJS/package-lock.json
+            newIDE/app/package-lock.json
+      - name: Restore IDE and runtime dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-verify-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-verify-dependencies-v1-${{ runner.os }}-
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
+      - name: Install IDE and GDJS dependencies
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Verify GDNG CI and packaging invariants
+        run: |
+          node scripts/verify-gdng-local-policy.cjs
+          node scripts/verify-gdng-ci.cjs
+      - name: Run complete IDE unit test suite
+        working-directory: newIDE/app
+        run: ./node_modules/.bin/react-app-rewired test --env=node --watchAll=false --runInBand
+      - name: Run GDJS TypeScript checks
+        working-directory: GDJS
+        run: npm run check-types
+      - name: Run Flow type checking
+        working-directory: newIDE/app
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/flow start --max-workers 4 --wait --no-auto-restart
+          trap './node_modules/.bin/flow stop >/dev/null 2>&1 || true' EXIT
+          ./node_modules/.bin/flow status --timeout 600000
+
+  build-wasm:
+    name: Build exact-commit GDevelop.js / WebAssembly
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: GDevelop.js/package-lock.json
+      - name: Restore GDevelop.js dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: GDevelop.js/node_modules
+          key: gdng-wasm-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json') }}
+          restore-keys: |
+            gdng-wasm-dependencies-v1-${{ runner.os }}-
+      - name: Restore compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: gdng-ccache-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gdng-ccache-wasm-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install Emscripten system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+      - name: Restore Emscripten SDK cache
+        id: emsdk-cache
+        uses: actions/cache@v6
+        with:
+          path: emsdk
+          key: gdng-emsdk-3.1.21-${{ runner.os }}-${{ runner.arch }}-v1
+      - name: Install Emscripten 3.1.21 on cache miss
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/juj/emsdk.git
+          ./emsdk/emsdk install 3.1.21
+      - name: Activate Emscripten 3.1.21
+        run: ./emsdk/emsdk activate 3.1.21
+      - name: Install GDevelop.js dependencies
+        working-directory: GDevelop.js
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm install --no-audit --no-fund
+      - name: Build GDevelop.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CMAKE_C_COMPILER_LAUNCHER=ccache
+          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          source emsdk/emsdk_env.sh
+          cd GDevelop.js
+          npm run build
+          cd ..
+          test -s Binaries/embuild/GDevelop.js/libGD.js
+          test -s Binaries/embuild/GDevelop.js/libGD.wasm
+      - name: Run GDevelop.js tests
+        working-directory: GDevelop.js
+        shell: bash
+        run: |
+          source ../emsdk/emsdk_env.sh
+          npm test -- --runInBand
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js/**
+          if-no-files-found: error
+          retention-days: 2
+
+  core-sanitizers:
+    name: GDCore tests with ASan and UBSan
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - name: Restore compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: gdng-ccache-core-asan-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gdng-ccache-core-asan-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang ccache libstdc++-12-dev
+      - name: Configure GDCore with address and undefined-behavior sanitizers
+        run: |
+          mkdir -p .build-tests-asan
+          cd .build-tests-asan
+          cmake \
+            -DBUILD_GDJS=FALSE \
+            -DBUILD_EXTENSIONS=FALSE \
+            -DBUILD_TESTS=TRUE \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DUSE_SANITIZERS="address,undefined" \
+            -DCMAKE_CXX_COMPILER="$(which clang++)" \
+            -DCMAKE_C_COMPILER="$(which clang)" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ..
+      - name: Build GDCore_tests
+        run: cmake --build .build-tests-asan --target GDCore_tests --parallel 4
+      - name: Run GDCore_tests with sanitizers
+        shell: bash
+        run: |
+          cd .build-tests-asan
+          export ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1
+          export UBSAN_OPTIONS=print_stacktrace=1
+          Core/GDCore_tests
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+
+  wasm-debug-sanitizers:
+    name: GDevelop.js debug sanitizers and clang-tidy
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: GDevelop.js/package-lock.json
+      - name: Restore debug-sanitizer dependency cache
+        uses: actions/cache@v6
+        with:
+          path: GDevelop.js/node_modules
+          key: gdng-wasm-debug-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json') }}
+          restore-keys: |
+            gdng-wasm-debug-dependencies-v1-${{ runner.os }}-
+      - name: Restore debug-sanitizer compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: gdng-ccache-wasm-debug-sanitizers-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gdng-ccache-wasm-debug-sanitizers-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install build and clang-tidy dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get install -y clang-tidy-19
+      - name: Restore Emscripten SDK cache
+        id: emsdk-cache
+        uses: actions/cache@v6
+        with:
+          path: emsdk
+          key: gdng-emsdk-3.1.21-${{ runner.os }}-${{ runner.arch }}-v1
+      - name: Install Emscripten 3.1.21 on cache miss
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/juj/emsdk.git
+          ./emsdk/emsdk install 3.1.21
+      - name: Activate Emscripten 3.1.21
+        run: ./emsdk/emsdk activate 3.1.21
+      - name: Install GDevelop.js dependencies
+        working-directory: GDevelop.js
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          npm install --no-audit --no-fund
+      - name: Build debug-sanitizers variant
+        working-directory: GDevelop.js
+        shell: bash
+        run: |
+          export CMAKE_C_COMPILER_LAUNCHER=ccache
+          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          source ../emsdk/emsdk_env.sh
+          npm run build -- --variant=debug-sanitizers
+      - name: Run clang-tidy
+        working-directory: GDevelop.js
+        run: npm run lint
+      - name: Run GDevelop.js tests under ASan
+        working-directory: GDevelop.js
+        env:
+          ASAN_OPTIONS: malloc_context_size=5
+        run: npm run test -- --maxWorkers=4
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+
+  build-editor:
+    name: Build shared web editor for platform packaging
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+      GENERATE_SOURCEMAP: 'false'
+      DISABLE_ESLINT_PLUGIN: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            GDevelop.js/package-lock.json
+            GDJS/package-lock.json
+            newIDE/app/package-lock.json
+      - name: Restore editor dependency cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-editor-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-editor-dependencies-v1-${{ runner.os }}-
+      - name: Restore weekly Babel build cache
+        id: babel-cache-period
+        shell: bash
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Cache Babel transpilation results
+        uses: actions/cache@v6
+        with:
+          path: newIDE/app/node_modules/.cache/babel-loader
+          key: gdng-editor-babel-v1-${{ runner.os }}-${{ steps.babel-cache-period.outputs.week }}-${{ github.sha }}
+          restore-keys: |
+            gdng-editor-babel-v1-${{ runner.os }}-${{ steps.babel-cache-period.outputs.week }}-
+      - name: Configure public Git dependencies and build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+      - name: Install GDevelop.js runtime tooling
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
+      - name: Install IDE dependencies and import exact-commit GDJS/Core resources
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Build the shared web editor without repeating resource imports
+        working-directory: newIDE/app
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/react-app-rewired build
+          node scripts/check-build-output.js
+      - name: Verify the shared editor package inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s newIDE/app/build/index.html
+          test -d newIDE/app/resources/GDJS/Runtime
+          test -d newIDE/app/resources/GDJS/Runtime-sources
+          test -s newIDE/app/public/libGD.js
+          test -s newIDE/app/public/libGD.wasm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-shared-editor
+          path: |
+            newIDE/app/build
+            newIDE/app/resources/GDJS
+            newIDE/app/public/libGD.js
+            newIDE/app/public/libGD.wasm
+          if-no-files-found: error
+          retention-days: 2
+
+  build-linux:
+    name: Linux x64 and arm64 packages
+    needs: [build-editor]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-shared-editor
+          path: newIDE/app
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            newIDE/electron-app/package-lock.json
+            newIDE/electron-app/app/package-lock.json
+      - name: Restore Linux Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y icnsutils graphicsmagick rsync
+      - name: Configure and install editor dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+          cd newIDE/electron-app
+          npm install --no-audit --no-fund
+      - name: Stage the shared web editor for Electron packaging
+        working-directory: newIDE/electron-app
+        run: node scripts/app-build.js --skip-app-build
+      - name: Build Linux AppImage, DEB and ZIP for x64 and arm64
+        working-directory: newIDE/electron-app
+        run: node scripts/build.js --skip-app-build --linux --publish=never
+      - name: Stage and verify Linux release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          assert_machine() {
+            local binary="$1"
+            local expected="$2"
+            local actual
+            actual="$(readelf -h "$binary" | sed -n 's/.*Machine:[[:space:]]*//p')"
+            echo "$binary: $actual"
+            test "$actual" = "$expected" || {
+              echo "Expected $expected architecture for $binary, got $actual" >&2
+              exit 1
+            }
+          }
+          x64_appimage="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.AppImage' ! -iname '*arm64*' -print -quit)"
+          arm64_appimage="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.AppImage' -iname '*arm64*' -print -quit)"
+          x64_deb="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.deb' ! -iname '*arm64*' -print -quit)"
+          arm64_deb="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname '*.deb' -iname '*arm64*' -print -quit)"
+          test -n "$x64_appimage" && test -n "$arm64_appimage"
+          test -n "$x64_deb" && test -n "$arm64_deb"
+          assert_machine "$x64_appimage" "Advanced Micro Devices X86-64"
+          assert_machine "$arm64_appimage" "AArch64"
+          test "$(dpkg-deb -f "$x64_deb" Architecture)" = "amd64"
+          test "$(dpkg-deb -f "$arm64_deb" Architecture)" = "arm64"
+          for arch in x64 arm64; do
+            if [ "$arch" = x64 ]; then
+              zip_path="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname 'gdng-*.zip' ! -iname '*arm64*' -print -quit)"
+              expected="Advanced Micro Devices X86-64"
+            else
+              zip_path="$(find newIDE/electron-app/dist -maxdepth 1 -type f -iname 'gdng-*.zip' -iname '*arm64*' -print -quit)"
+              expected="AArch64"
+            fi
+            test -n "$zip_path"
+            temp_dir="$(mktemp -d)"
+            unzip -q "$zip_path" -d "$temp_dir"
+            executable="$(find "$temp_dir" -type f -name gdng -print -quit)"
+            test -n "$executable"
+            assert_machine "$executable" "$expected"
+            rm -rf "$temp_dir"
+          done
+          rm -rf newIDE/electron-app/dist/linux-unpacked newIDE/electron-app/dist/linux-arm64-unpacked
+          mkdir -p release-artifacts/linux
+          find newIDE/electron-app/dist -maxdepth 1 -type f \( -iname '*.AppImage' -o -iname '*.deb' -o -iname '*.zip' \) -exec cp {} release-artifacts/linux/ \;
+          for ext in AppImage deb zip; do
+            count="$(find release-artifacts/linux -maxdepth 1 -type f -iname "*.$ext" | wc -l)"
+            test "$count" -eq 2 || { echo "Expected x64+arm64 $ext outputs, found $count" >&2; exit 1; }
+            find release-artifacts/linux -maxdepth 1 -type f -iname "*.$ext" | grep -qi arm64
+          done
+          test -s "$(find release-artifacts/linux -maxdepth 1 -type f -iname '*.zip' ! -iname '*arm64*' -print -quit)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    name: macOS universal DMG and ZIP
+    needs: [build-editor]
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    env:
+      CSC_FOR_PULL_REQUEST: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-shared-editor
+          path: newIDE/app
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            newIDE/electron-app/package-lock.json
+            newIDE/electron-app/app/package-lock.json
+      - name: Restore macOS Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+      - name: Install Electron application dependencies
+        working-directory: newIDE/electron-app
+        run: npm install --no-audit --no-fund
+      - name: Stage the shared web editor for Electron packaging
+        working-directory: newIDE/electron-app
+        run: node scripts/app-build.js --skip-app-build
+      - name: Build universal macOS DMG and ZIP
+        working-directory: newIDE/electron-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=7168
+        run: npm run build -- --skip-app-build --mac --publish=never
+      - name: Verify universal macOS executable architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="newIDE/electron-app/dist/mac-universal/GDNG.app"
+          for binary in \
+            "$app/Contents/MacOS/GDNG" \
+            "$app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"; do
+            test -f "$binary"
+            architectures="$(xcrun lipo -archs "$binary")"
+            echo "$binary: $architectures"
+            [[ " $architectures " == *" x86_64 "* ]] || {
+              echo "Missing x86_64 slice in $binary" >&2
+              exit 1
+            }
+            [[ " $architectures " == *" arm64 "* ]] || {
+              echo "Missing arm64 slice in $binary" >&2
+              exit 1
+            }
+          done
+      - name: Stage and verify macOS release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf newIDE/electron-app/dist/mac-universal/GDNG.app
+          mkdir -p release-artifacts/macos
+          find newIDE/electron-app/dist -maxdepth 1 -type f \( -iname '*.dmg' -o -iname '*.zip' \) -exec cp {} release-artifacts/macos/ \;
+          test -n "$(find release-artifacts/macos -maxdepth 1 -type f -iname '*.dmg' -print -quit)"
+          test -n "$(find release-artifacts/macos -maxdepth 1 -type f -iname '*.zip' -print -quit)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 2
+
+  build-windows:
+    name: Windows x64 NSIS installer and portable ZIP
+    needs: [build-editor]
+    runs-on: windows-2025
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-shared-editor
+          path: newIDE/app
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            newIDE/electron-app/package-lock.json
+            newIDE/electron-app/app/package-lock.json
+      - name: Restore Windows Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
+      - name: Configure build environment
+        shell: pwsh
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify GDNG local packaging policy
+        run: node scripts/verify-gdng-local-policy.cjs
+      - name: Install Electron application dependencies
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            npm install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Stage the shared web editor for Electron packaging
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            node scripts/app-build.js --skip-app-build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Build unsigned NSIS installer
+        shell: pwsh
+        run: |
+          Push-Location newIDE/electron-app
+          try {
+            node scripts/build.js --skip-app-build --win nsis --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Build unsigned portable ZIP
+        shell: pwsh
+        run: |
+          $env:GD_PORTABLE_BUILD = 'true'
+          Push-Location newIDE/electron-app
+          try {
+            node scripts/build.js --skip-app-build --win zip --publish=never
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+      - name: Stage and verify Windows release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts\windows | Out-Null
+          Get-ChildItem newIDE\electron-app\dist -File |
+            Where-Object { $_.Extension -in '.exe', '.zip' } |
+            Copy-Item -Destination release-artifacts\windows
+          if (-not (Get-ChildItem release-artifacts\windows -Filter '*.exe' -File)) {
+            throw 'Missing Windows NSIS installer.'
+          }
+          if (-not (Get-ChildItem release-artifacts\windows -Filter '*.zip' -File)) {
+            throw 'Missing Windows portable ZIP.'
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 2
+
+  cli-html5-export:
+    name: Linux CLI HTML5 export smoke test
+    needs: [build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Install Electron runtime and CLI smoke-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+          mkdir -p cli-html5-export-deps
+          cd cli-html5-export-deps
+          npm init -y
+          npm install --no-audit --no-fund axios@^0.18.1 https-proxy-agent@^5.0.1 minimist@^1.2.5 shelljs@^0.8.4 adm-zip@^0.5.10
+      - name: Export example game with the locally built GDNG binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NODE_PATH="$PWD/cli-html5-export-deps/node_modules"
+          zip_path="$(find release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1280x800x24" \
+            node newIDE/app/scripts/test-portable-cli-export.js \
+              --zipPath="$PWD/$zip_path" \
+              --example=3d-platformer \
+              --workDir=./cli-html5-export-work \
+              --artifactsDir=./cli-html5-export-artifacts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-cli-export-test-results
+          path: cli-html5-export-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build-storybook:
+    name: Build Storybook for visual tests
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-exact-commit-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            GDevelop.js/package-lock.json
+            GDJS/package-lock.json
+            newIDE/app/package-lock.json
+      - name: Restore Storybook editor dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-storybook-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-storybook-dependencies-v1-${{ runner.os }}-
+      - name: Install GDevelop.js runtime tooling for editor resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
+      - name: Install editor dependencies
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Build Storybook
+        working-directory: newIDE/app
+        run: npm run build-storybook
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-release-storybook
+          path: newIDE/app/build-storybook
+          if-no-files-found: error
+          retention-days: 2
+
+  visual-storybook:
+    name: Complete Storybook visual suite
+    needs: [build-storybook]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-storybook
+          path: newIDE/app/build-storybook
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: newIDE/visual-tests/package-lock.json
+      - name: Install Chrome runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0
+      - name: Restore Storybook visual dependencies and Chromium cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/visual-tests/node_modules
+            ~/.cache/puppeteer
+          key: gdng-storybook-visual-dependencies-v1-${{ runner.os }}-${{ hashFiles('newIDE/visual-tests/package-lock.json') }}
+          restore-keys: |
+            gdng-storybook-visual-dependencies-v1-${{ runner.os }}-
+      - name: Install visual test dependencies and Chromium
+        working-directory: newIDE/visual-tests
+        run: |
+          npm install --no-audit --no-fund
+          node node_modules/puppeteer/install.mjs
+      - name: Run all Storybook visual tests
+        working-directory: newIDE/visual-tests
+        run: node run.js --suite=storybook --artifacts-dir=/tmp/visual-tests-artifacts --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-storybook-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  visual-editor:
+    name: Packaged Linux editor visual suite
+    needs: [build-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: newIDE/visual-tests/package-lock.json
+      - name: Install Electron runtime libraries and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+      - name: Restore packaged-editor visual dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/visual-tests/node_modules
+            ~/.cache/puppeteer
+          key: gdng-editor-visual-dependencies-v1-${{ runner.os }}-${{ hashFiles('newIDE/visual-tests/package-lock.json') }}
+          restore-keys: |
+            gdng-editor-visual-dependencies-v1-${{ runner.os }}-
+      - name: Install visual test dependencies
+        working-directory: newIDE/visual-tests
+        run: npm install --no-audit --no-fund
+      - name: Run real-editor visual tests against the exact release package
+        working-directory: newIDE/visual-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="$(find ../../release-artifacts/linux -maxdepth 1 -type f -name 'gdng-*.zip' ! -name '*-arm64*' -print -quit)"
+          test -n "$zip_path"
+          xvfb-run -a --server-args="-screen 0 1500x1000x24" \
+            node run.js --suite=editor \
+              --gdevelop-zip="$zip_path" \
+              --artifacts-dir=/tmp/visual-tests-artifacts \
+              --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gdng-editor-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish-release:
+    name: Publish verified cross-platform GitHub Release
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/gdng-v')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'closed' &&
+       github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.pull_request.head.ref, 'automation/upstream-'))
+    needs:
+      - release-gate
+      - verify
+      - build-wasm
+      - core-sanitizers
+      - wasm-debug-sanitizers
+      - build-linux
+      - build-macos
+      - build-windows
+      - cli-html5-export
+      - visual-storybook
+      - visual-editor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+      - name: Resolve release version and tag
+        id: release-metadata
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./newIDE/electron-app/app/package.json").version')"
+          expected_tag="gdng-v$version"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            upstream_tag="${PR_HEAD_REF#automation/upstream-}"
+            if [[ "$upstream_tag" != "v$version" ]]; then
+              echo "Merged upstream ref $upstream_tag does not match GDNG package version $version." >&2
+              exit 1
+            fi
+            tag="gdng-$upstream_tag"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [[ "$tag" != "$expected_tag" ]]; then
+            echo "Release tag must be $expected_tag, got $tag." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable tag for the merged upstream release
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
+          RELEASE_SHA: ${{ env.GDNG_SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          ref_path="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          error_file="$(mktemp)"
+          if existing_ref="$(gh api "$ref_path" 2>"$error_file")"; then
+            object_type="$(jq -r '.object.type' <<< "$existing_ref")"
+            object_sha="$(jq -r '.object.sha' <<< "$existing_ref")"
+            if [[ "$object_type" == "tag" ]]; then
+              object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq '.object.sha')"
+            fi
+            if [[ "$object_sha" != "$RELEASE_SHA" ]]; then
+              echo "Refusing to move $RELEASE_TAG: it already points to $object_sha, not $RELEASE_SHA." >&2
+              exit 1
+            fi
+            echo "$RELEASE_TAG already points to the expected commit; continuing idempotently."
+          else
+            error="$(cat "$error_file")"
+            if [[ "$error" != *"HTTP 404"* && "$error" != *"Not Found"* ]]; then
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              exit 1
+            fi
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$RELEASE_SHA"
+          fi
+          rm -f "$error_file"
+
+      - name: Publish verified release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GDNG_RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
+          GDNG_SOURCE_SHA: ${{ env.GDNG_SOURCE_SHA }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/publish-gdng-release.cjs
+
+  validate-dispatch:
+    name: Validate all platform artifacts (no publication)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
+    needs:
+      - verify
+      - build-wasm
+      - core-sanitizers
+      - wasm-debug-sanitizers
+      - build-linux
+      - build-macos
+      - build-windows
+      - cli-html5-export
+      - visual-storybook
+      - visual-editor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.GDNG_SOURCE_SHA }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-linux
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-macos
+          path: release-artifacts
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-release-windows
+          path: release-artifacts
+      - name: Determine the tag to validate for this run
+        id: release-version
+        shell: bash
+        run: |
+          version="$(node -p 'require("./newIDE/electron-app/app/package.json").version')"
+          echo "tag=gdng-v$version" >> "$GITHUB_OUTPUT"
+      - name: Validate the release tag and every platform artifact
+        env:
+          GDNG_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || steps.release-version.outputs.tag }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/publish-gdng-release.cjs --validate-only

@@ -11,10 +11,9 @@ const config = {
     buildResources: 'build',
     output: 'dist',
   },
-  // Reuse the Electron distribution installed by this package's postinstall.
-  // This avoids a second GitHub download during packaging and works offline
-  // once npm has installed the pinned Electron version.
-  electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist'),
+  // Let electron-builder resolve Electron for every target architecture.
+  // A single node_modules/electron/dist is tied to the npm install host arch
+  // and must not be reused for Linux arm64 or the macOS universal merge.
   extraResources: [
     {
       from: '../app/resources/GDJS',
@@ -63,25 +62,6 @@ const config = {
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
-  },
-  appx: {
-    publisherDisplayName: 'GDevelop game engine',
-    displayName: 'GDevelop',
-    publisher: 'CN=B13CB8D3-97AA-422C-A394-0EE51B9ACAD3',
-    identityName: 'GDevelopgameengine.GDevelop',
-    backgroundColor: '#524F9C',
-    languages: [
-      'EN-US',
-      'ZH-HANS',
-      'DE',
-      'IT',
-      'JA',
-      'PT-BR',
-      'RU',
-      'ES',
-      'FR',
-      'SL',
-    ],
   },
   afterSign: 'scripts/electron-builder-after-sign.js',
   // The packaged app must only check GDNG releases, never upstream GDevelop.

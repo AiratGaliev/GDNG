@@ -6,7 +6,9 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const AdmZip = require('adm-zip');
 const puppeteer = require('puppeteer');
-const { downloadFile, formatBytes } = require('./Download');
+const {
+  downloadLatestMainLinuxArtifact,
+} = require('../../../scripts/lib/download-latest-main-linux-artifact.cjs');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
@@ -22,7 +24,7 @@ const wait = durationInMs =>
  * `name` field of the package.json by electron-builder).
  */
 const findExecutable = root => {
-  const candidates = ['gdevelop', 'GDevelop'];
+  const candidates = ['gdng', 'GDNG', 'gdevelop', 'GDevelop'];
   const stack = [root];
   while (stack.length) {
     const directory = stack.pop();
@@ -44,33 +46,10 @@ const findExecutable = root => {
 };
 
 /**
- * The version built by a branch: the one of its electron-app package.json,
- * when the branch is known to git - the version of this checkout otherwise.
- * Downloading the build of another branch (the tests of a branch run against
- * the latest build of `master`) must use the version of that branch: this
- * checkout may have bumped it, to a version not uploaded anywhere yet.
- */
-const getVersionOfBranch = branch => {
-  const result = spawnSync(
-    'git',
-    ['show', `origin/${branch}:newIDE/electron-app/app/package.json`],
-    { cwd: path.resolve(__dirname, '..', '..', '..'), encoding: 'utf8' }
-  );
-  try {
-    return JSON.parse(result.stdout).version;
-  } catch (error) {
-    return electronAppPackageJson.version;
-  }
-};
-
-/**
  * Get the portable Linux build to test: either a local zip (the one a
- * build-linux job just produced) or the latest one uploaded to S3.
+ * build-linux job just produced) or the matching versioned GDNG GitHub Release.
  */
-const getPortableBuild = async ({ zipPath, branch, workDirectory, log }) => {
-  const version = zipPath
-    ? electronAppPackageJson.version
-    : getVersionOfBranch(branch);
+const getPortableBuild = async ({ zipPath, workDirectory, log }) => {
   fs.mkdirSync(workDirectory, { recursive: true });
 
   let portableZipPath = zipPath;
@@ -79,21 +58,13 @@ const getPortableBuild = async ({ zipPath, branch, workDirectory, log }) => {
       throw new Error(`The given zip does not exist: ${portableZipPath}`);
     log(`Using the local portable build ${portableZipPath}.`);
   } else {
-    const zipName = `gdevelop-${version}.zip`;
-    const url = `https://gdevelop-releases.s3.amazonaws.com/${branch}/latest/${zipName}`;
-    portableZipPath = path.join(workDirectory, zipName);
-    if (fs.existsSync(portableZipPath)) {
-      log(`Using the already downloaded ${portableZipPath}.`);
-    } else {
-      log(`Downloading ${url}...`);
-      await downloadFile(url, portableZipPath);
-      log(
-        `Downloaded ${zipName} (${formatBytes(
-          fs.statSync(portableZipPath).size
-        )}).`
-      );
-    }
+    portableZipPath = downloadLatestMainLinuxArtifact({
+      outputDirectory: workDirectory,
+      log,
+    });
   }
+  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\.zip$/i);
+  const version = versionMatch ? versionMatch[1] : electronAppPackageJson.version;
 
   const extractedDirectory = path.join(workDirectory, `gdevelop-${version}`);
   if (!findExecutable(extractedDirectory)) {
