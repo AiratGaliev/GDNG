@@ -197,6 +197,7 @@ const requiredGhaJobs = [
   'release-gate',
   'verify',
   'build-wasm',
+  'build-editor',
   'core-sanitizers',
   'wasm-debug-sanitizers',
   'build-linux',
@@ -221,7 +222,14 @@ assert.match(gateJob, /automation\/upstream-/);
 const wasmJob = extractIndentedSection(ghaJobs, 'build-wasm', 2);
 assert.match(wasmJob, /needs: \[release-gate\]/);
 assert.match(wasmJob, /if: needs\.release-gate\.outputs\.should_build == 'true'/);
+assert.match(wasmJob, /actions\/cache@v6[\s\S]*?key: gdng-emsdk-3\.1\.21-/);
+assert.match(wasmJob, /steps\.emsdk-cache\.outputs\.cache-hit/);
 assert.match(wasmJob, /emsdk install 3\.1\.21/);
+assert.match(wasmJob, /actions\/cache@v6[\s\S]*?path: \.ccache/);
+assert.match(wasmJob, /CCACHE_DIR:/);
+assert.match(wasmJob, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+assert.match(wasmJob, /ccache --show-stats/);
+assert.match(wasmJob, /cache: npm/);
 assert.match(wasmJob, /npm run build/);
 assert.match(wasmJob, /npm test -- --runInBand/);
 assert.match(wasmJob, /actions\/upload-artifact@/);
@@ -241,17 +249,41 @@ assert.ok(
   'Verification must install GDevelop.js tooling before newIDE/app postinstall imports the local Core bindings.'
 );
 
-for (const [jobName, buildArg] of [
-  ['build-linux', '--linux'],
-  ['build-macos', '--mac'],
-]) {
-  const job = extractIndentedSection(ghaJobs, jobName, 2);
-  assert.match(job, /needs: \[verify, build-wasm\]/);
-  assert.match(job, /name: gdng-exact-commit-wasm/);
-  assert.ok(job.includes('npm run build -- ' + buildArg), jobName + ' must invoke its configured electron-builder target.');
-  assert.match(job, /actions\/upload-artifact@/);
-}
+const editorBuildJob = extractIndentedSection(ghaJobs, 'build-editor', 2);
+assert.match(editorBuildJob, /needs: \[build-wasm\]/);
+assert.match(editorBuildJob, /name: gdng-exact-commit-wasm/);
+assert.match(editorBuildJob, /cache: npm/);
+assert.match(editorBuildJob, /working-directory: GDevelop\.js[\s\S]*?npm install --no-audit --no-fund/);
+assert.match(editorBuildJob, /working-directory: newIDE\/app[\s\S]*?npm install --no-audit --no-fund/);
+assert.ok(editorBuildJob.indexOf('working-directory: GDevelop.js') < editorBuildJob.indexOf('working-directory: newIDE/app'));
+assert.match(editorBuildJob, /react-app-rewired build/);
+assert.match(editorBuildJob, /node scripts\/check-build-output\.js/);
+assert.match(editorBuildJob, /newIDE\/app\/resources\/GDJS/);
+assert.match(editorBuildJob, /newIDE\/app\/public\/libGD\.wasm/);
+assert.match(editorBuildJob, /name: gdng-shared-editor/);
+
+const linuxJob = extractIndentedSection(ghaJobs, 'build-linux', 2);
+assert.match(linuxJob, /needs: \[build-editor\]/);
+assert.match(linuxJob, /name: gdng-shared-editor[\s\S]*?path: newIDE\/app/);
+assert.match(linuxJob, /node scripts\/app-build\.js --skip-app-build/);
+assert.match(linuxJob, /node scripts\/build\.js --skip-app-build --linux --publish=never/);
+assert.match(linuxJob, /cache: npm/);
+
+const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
+assert.match(windowsJob, /needs: \[build-editor\]/);
+assert.match(windowsJob, /name: gdng-shared-editor[\s\S]*?path: newIDE\/app/);
+assert.match(windowsJob, /node scripts\/app-build\.js --skip-app-build/);
+assert.match(windowsJob, /node scripts\/build\.js --skip-app-build --win nsis --publish=never/);
+assert.match(windowsJob, /node scripts\/build\.js --skip-app-build --win zip --publish=never/);
+assert.match(windowsJob, /cache: npm/);
+assert.doesNotMatch(windowsJob, /Push-Location GDevelop\.js/);
+assert.doesNotMatch(windowsJob, /Push-Location newIDE\/app/);
+
 const macosJob = extractIndentedSection(ghaJobs, 'build-macos', 2);
+assert.match(macosJob, /needs: \[build-wasm\]/);
+assert.match(macosJob, /name: gdng-exact-commit-wasm/);
+assert.match(macosJob, /npm run build -- --mac/);
+assert.match(macosJob, /cache: npm/);
 assert.match(macosJob, /runs-on: macos-15-intel/);
 assert.doesNotMatch(macosJob, /runs-on: macos-14/);
 assert.doesNotMatch(
@@ -261,24 +293,10 @@ assert.doesNotMatch(
 );
 assert.match(releaseWorkflow, /^permissions:\s*\n  contents: read/m);
 const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
-assert.match(windowsJob, /needs: \[verify, build-wasm\]/);
-assert.match(windowsJob, /name: gdng-exact-commit-wasm/);
-assert.match(windowsJob, /--win nsis --publish=never/);
+assert.match(windowsJob, /needs: \[build-editor\]/);
+assert.match(windowsJob, /--skip-app-build --win nsis --publish=never/);
 assert.match(windowsJob, /--skip-app-build --win zip --publish=never/);
 assert.match(windowsJob, /name: gdng-release-windows/);
-assert.ok(
-  windowsJob.indexOf('Push-Location GDevelop.js') >= 0 &&
-    windowsJob.indexOf('Push-Location GDevelop.js') <
-      windowsJob.indexOf('Push-Location newIDE/app'),
-  'Windows must install GDevelop.js tooling before newIDE/app postinstall.'
-);
-const linuxJob = extractIndentedSection(ghaJobs, 'build-linux', 2);
-assert.ok(
-  linuxJob.indexOf('cd GDevelop.js') >= 0 &&
-    linuxJob.indexOf('cd GDevelop.js') <
-      linuxJob.indexOf('cd newIDE/app'),
-  'Linux must install GDevelop.js tooling before newIDE/app postinstall.'
-);
 assert.ok(
   macosJob.indexOf('cd GDevelop.js') >= 0 &&
     macosJob.indexOf('cd GDevelop.js') <
@@ -295,11 +313,18 @@ for (const [jobName, requiredArg] of [
   assert.ok(job.includes(requiredArg), jobName + ' is missing its platform build target.');
 }
 
-for (const jobName of ['core-sanitizers', 'wasm-debug-sanitizers']) {
-  const job = extractIndentedSection(ghaJobs, jobName, 2);
-  assert.match(job, /needs: \[release-gate\]/);
-  assert.match(job, /if: needs\.release-gate\.outputs\.should_build == 'true'/);
-}
+const coreSanitizersJob = extractIndentedSection(ghaJobs, 'core-sanitizers', 2);
+assert.match(coreSanitizersJob, /actions\/cache@v6[\s\S]*?path: \.ccache/);
+assert.match(coreSanitizersJob, /CCACHE_DIR:/);
+assert.match(coreSanitizersJob, /ccache --show-stats/);
+
+const debugSanitizersJob = extractIndentedSection(ghaJobs, 'wasm-debug-sanitizers', 2);
+assert.match(debugSanitizersJob, /needs: \[release-gate\]/);
+assert.match(debugSanitizersJob, /if: needs\.release-gate\.outputs\.should_build == 'true'/);
+assert.match(debugSanitizersJob, /actions\/cache@v6[\s\S]*?path: \.ccache/);
+assert.match(debugSanitizersJob, /actions\/cache@v6[\s\S]*?key: gdng-emsdk-3\.1\.21-/);
+assert.match(debugSanitizersJob, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+assert.match(debugSanitizersJob, /ccache --show-stats/);
 
 const cliJob = extractIndentedSection(ghaJobs, 'cli-html5-export', 2);
 assert.match(cliJob, /needs: \[build-linux\]/);
