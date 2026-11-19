@@ -44,11 +44,9 @@ const findExecutable = root => {
 };
 
 /**
- * The version built by a branch: the one of its electron-app package.json,
- * when the branch is known to git - the version of this checkout otherwise.
- * Downloading the build of another branch (the tests of a branch run against
- * the latest build of `master`) must use the version of that branch: this
- * checkout may have bumped it, to a version not uploaded anywhere yet.
+ * Resolve the version associated with a branch's editor package metadata.
+ * This lets the visual suite select the corresponding versioned GDNG release
+ * instead of accidentally using the checkout's version for another branch.
  */
 const getVersionOfBranch = branch => {
   const result = spawnSync(
@@ -65,7 +63,7 @@ const getVersionOfBranch = branch => {
 
 /**
  * Get the portable Linux build to test: either a local zip (the one a
- * build-linux job just produced) or the latest one uploaded to S3.
+ * build-linux job just produced) or the matching versioned GDNG GitHub Release.
  */
 const getPortableBuild = async ({ zipPath, branch, workDirectory, log }) => {
   const version = zipPath
@@ -79,8 +77,8 @@ const getPortableBuild = async ({ zipPath, branch, workDirectory, log }) => {
       throw new Error(`The given zip does not exist: ${portableZipPath}`);
     log(`Using the local portable build ${portableZipPath}.`);
   } else {
-    const zipName = `gdevelop-${version}.zip`;
-    const url = `https://gdevelop-releases.s3.amazonaws.com/${branch}/latest/${zipName}`;
+    const zipName = `gdng-${version}.zip`;
+    const url = `https://github.com/AiratGaliev/GDNG/releases/download/gdng-v${version}/${zipName}`;
     portableZipPath = path.join(workDirectory, zipName);
     if (fs.existsSync(portableZipPath)) {
       log(`Using the already downloaded ${portableZipPath}.`);

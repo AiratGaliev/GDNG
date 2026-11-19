@@ -18,7 +18,7 @@
  *      exists) and zips it into the artifacts folder.
  *
  * Usage:
- *   node test-portable-cli-export.js [--branch=main] [--example=3d-platformer]
+ *   node test-portable-cli-export.js [--example=3d-platformer]
  *                                    [--zipPath=/path/to/gdng-X.Y.Z.zip]
  *                                    [--workDir=./.portable-cli-test]
  *                                    [--artifactsDir=./portable-cli-artifacts]
@@ -35,7 +35,6 @@ const { retryIfFailed } = require('./lib/RetryIfFailed');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
-const branch = args['branch'] || 'main';
 const exampleSlug = args['example'] || '3d-platformer';
 const workDir = path.resolve(args['workDir'] || './.portable-cli-test');
 const artifactsDir = path.resolve(
@@ -64,7 +63,7 @@ const fail = msg => {
 
 (async () => {
   shell.echo(`ℹ️ GDevelop version (from electron-app/app/package.json): ${version}`);
-  shell.echo(`ℹ️ Branch: ${branch} — example: ${exampleSlug}`);
+  shell.echo(`ℹ️ Example: ${exampleSlug}`);
   shell.echo(`ℹ️ Work dir:      ${workDir}`);
   shell.echo(`ℹ️ Artifacts dir: ${artifactsDir}`);
 

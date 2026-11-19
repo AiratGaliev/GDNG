@@ -30,7 +30,7 @@ npm install                             # also downloads the Chrome to run in
 
 node run.js --list
 node run.js --suite=storybook           # builds Storybook if needed, then runs
-node run.js --suite=editor              # downloads the latest portable build
+node run.js --suite=editor              # downloads the matching GDNG GitHub Release
 node run.js --suite=all
 ```
 
@@ -42,7 +42,7 @@ node run.js --suite=all
 | `--storybook-url=<url>` | Use a Storybook already running instead of building |
 | `--rebuild-storybook` | Rebuild Storybook even if already built |
 | `--gdevelop-zip=<path>` | Use this portable build instead of downloading one |
-| `--gdevelop-branch=<branch>` | Download the latest portable build of this branch |
+| `--gdevelop-branch=<branch>` | Select the versioned GDNG release matching this branch's editor package version |
 | `--editor-monkey-steps=<n>` | Manipulations of a random session on the real app |
 | `--artifacts-dir=<path>` | Where screenshots and logs go (default: `artifacts`) |
 | `--chrome-path=<path>` | The Chrome to run in |
@@ -53,13 +53,13 @@ node run.js --suite=all
 On a branch, the CI only runs the tests related to what it changes (and builds
 nothing if there are none): each helper declares the sources its tests watch, in
 its `paths`, and changing the tests themselves relates every test. Everything
-runs on `master` - a change anywhere else can break an editor too - and
+runs on `main` - a change anywhere else can break an editor too - and
 `run-all-visual-tests` on a pipeline forces that on a branch.
 
 Both suites work this way, with one difference: on a branch, the editor suite
-runs against the latest portable build of `master` (a branch builds no app), so
+runs against the GDNG release matching `main`'s editor package version (a branch builds no app), so
 it exercises the tests of the branch, but not its changes to the app itself -
-those are tested by the same suite on `master`, right after `build-linux`.
+those are tested by the same suite on `main`, right after `build-linux`.
 
 A problem these tests find but are not here to guard can be listed in
 `lib/KnownIssues.js`: it is then reported loudly without failing the run, so

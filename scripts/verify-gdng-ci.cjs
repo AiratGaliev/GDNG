@@ -546,9 +546,17 @@ assert.equal(editorConfig.appId, 'com.gdng.editor');
 
 const cliExport = read('newIDE/app/scripts/test-portable-cli-export.js');
 assert.match(cliExport, /portableZipName = 'gdng-' \+ version \+ '\.zip'/);
-assert.match(cliExport, /const branch = args\['branch'\] \|\| 'main'/);
+assert.doesNotMatch(cliExport, /args\['branch'\]|const branch =/);
 assert.match(cliExport, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
 assert.doesNotMatch(cliExport, /S3|s3/);
+
+const realEditor = read('newIDE/visual-tests/lib/RealEditor.js');
+assert.match(realEditor, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
+assert.doesNotMatch(realEditor, /gdevelop-releases\.s3\.amazonaws\.com|S3/);
+const visualRunner = read('newIDE/visual-tests/run.js');
+assert.match(visualRunner, /args\['gdevelop-branch'\] \|\| 'main'/);
+assert.match(visualRunner, /origin\/main/);
+assert.doesNotMatch(visualRunner, /origin\/master/);
 
 const fastTriggers = extractTopLevelSection(fastCiWorkflow, 'on');
 assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?main/);
