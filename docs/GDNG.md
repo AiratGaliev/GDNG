@@ -14,9 +14,14 @@ See [Development workflow](development-workflow.md) for the contribution and val
 
 ## GDNG-specific behavior
 
-GDNG enables selected local editor features through `newIDE/app/src/Utils/LocalFeaturePolicy.js`, including debugger access, local preview features and project-level branding controls.
+GDNG enables selected local editor features through `newIDE/app/src/Utils/LocalFeaturePolicy.js`. Preserve these behaviors when integrating upstream changes:
 
-This changes local editor restrictions only. It does not grant cloud services, AI credits, publishing capacity or other server-side entitlements. Account permissions and API-provided limits remain controlled by GDevelop services.
+- Debugger access.
+- Live preview, Hot Reload and preview over Wi-Fi.
+- Per-project controls for the GDevelop splash screen and exported-game watermark.
+- Loading-screen timing controls when GDevelop branding is disabled.
+
+This policy affects local editor restrictions only. It does not grant cloud services, AI credits, publishing capacity or other server-side entitlements. Account permissions and API-provided limits remain controlled by GDevelop services.
 
 The policy has a focused test in `newIDE/app/src/Utils/LocalFeaturePolicy.spec.js`.
 
