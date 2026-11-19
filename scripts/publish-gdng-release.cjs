@@ -12,6 +12,7 @@ const version = require(path.join(
   'newIDE/electron-app/app/package.json'
 )).version;
 const expectedTag = 'gdng-v' + version;
+const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev/GDNG -->';
 const tag =
   process.env.GDNG_RELEASE_TAG ||
   process.env.CIRCLE_TAG ||
@@ -328,9 +329,7 @@ async function main() {
     release.draft &&
     (release.name !== 'GDNG v' + version ||
       typeof release.body !== 'string' ||
-      !release.body.includes(
-        'Cross-platform GDNG desktop release built from commit '
-      ))
+      !release.body.includes(publisherMarker))
   ) {
     throw new Error(
       'Existing draft release ' + tag +
@@ -363,6 +362,7 @@ async function main() {
         'All binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear.',
         '',
         'Build: ' + buildUrl,
+        publisherMarker,
       ].join('\n'),
     });
   }

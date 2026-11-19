@@ -14,9 +14,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Exact GDNG release tag to validate
-        required: true
-        default: gdng-v5.6.287
+        description: Optional exact GDNG release tag to validate (defaults to the current package version)
+        required: false
         type: string
 
 permissions:

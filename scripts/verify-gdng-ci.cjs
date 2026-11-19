@@ -411,6 +411,19 @@ const dispatchValidation = extractIndentedSection(
   2
 );
 assert.match(dispatchValidation, /--validate-only/);
+assert.match(
+  releaseWorkflow,
+  /release_tag:[\\s\\S]*?required: false/
+);
+assert.doesNotMatch(
+  releaseWorkflow,
+  /default: gdng-v/,
+  'Manual validation must derive its default tag from the current package version, not a stale hard-coded version.'
+);
+assert.match(
+  dispatchValidation,
+  /inputs\\.release_tag \\|\\| steps\\.release-version\\.outputs\\.tag/
+);
 assert.doesNotMatch(publisherJob, /GDNG_GITHUB_TOKEN/);
 
 const publisher = read('scripts/publish-gdng-release.cjs');
@@ -418,6 +431,9 @@ assert.match(publisher, /GITHUB_TOKEN/);
 assert.match(publisher, /GDNG_SOURCE_SHA/);
 assert.match(publisher, /GITHUB_REF_NAME/);
 assert.match(publisher, /requireArchitecturePair/);
+assert.match(publisher, /const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev\\/GDNG -->'/);
+assert.match(publisher, /release\\.body\\.includes\\(publisherMarker\\)/);
+assert.match(publisher, /publisherMarker,/);
 assert.match(publisher, /--validate-only/);
 assert.match(publisher, /gdng-v' \+ version/);
 assert.match(publisher, /draft: false/);
