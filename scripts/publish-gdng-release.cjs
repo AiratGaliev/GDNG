@@ -19,7 +19,10 @@ const tag =
 const token = process.env.GDNG_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
 const validateOnly = process.argv.includes('--validate-only');
 const sourceCommit =
-  process.env.CIRCLE_SHA1 || process.env.GITHUB_SHA || 'unknown';
+  process.env.GDNG_SOURCE_SHA ||
+  process.env.CIRCLE_SHA1 ||
+  process.env.GITHUB_SHA ||
+  'unknown';
 const buildUrl =
   process.env.CIRCLE_BUILD_URL ||
   (process.env.GITHUB_SERVER_URL &&

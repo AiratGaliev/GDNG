@@ -6,6 +6,11 @@ on:
       - ci/full-multiplatform-builds
     tags:
       - 'gdng-v*'
+  pull_request:
+    types:
+      - closed
+    branches:
+      - custom
   workflow_dispatch:
     inputs:
       release_tag:
@@ -18,13 +23,41 @@ permissions:
   contents: read
 
 concurrency:
-  group: gdng-release-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+  group: gdng-release-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || (github.event_name == 'push' && github.ref_name) || inputs.release_tag }}
   cancel-in-progress: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
 
 env:
   NODE_OPTIONS: --max-old-space-size=8192
+  GDNG_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
 
 jobs:
+  # Avoid running the full matrix for unrelated pull-request closures.
+  release-gate:
+    name: Route release build triggers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      should_build: ${{ steps.route.outputs.should_build }}
+    steps:
+      - name: Decide whether this event should build
+        id: route
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          should_build=false
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            should_build=true
+          elif [[ "$EVENT_ACTION" == "closed" && "$PR_MERGED" == "true" && "$PR_HEAD_REF" == automation/upstream-* ]]; then
+            should_build=true
+          fi
+          echo "should_build=$should_build" >> "$GITHUB_OUTPUT"
+          echo "Full release matrix enabled: $should_build"
+
   verify:
     name: IDE tests, types and GDNG policies
     needs: [build-wasm]
@@ -35,7 +68,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - name: Install the official CircleCI CLI
         shell: bash
         run: |
@@ -89,12 +122,14 @@ jobs:
 
   build-wasm:
     name: Build exact-commit GDevelop.js / WebAssembly
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
@@ -140,12 +175,14 @@ jobs:
 
   core-sanitizers:
     name: GDCore tests with ASan and UBSan
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - name: Install native build dependencies
         run: |
           sudo apt-get update
@@ -177,12 +214,14 @@ jobs:
 
   wasm-debug-sanitizers:
     name: GDevelop.js debug sanitizers and clang-tidy
+    needs: [release-gate]
+    if: needs.release-gate.outputs.should_build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
@@ -228,7 +267,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-exact-commit-wasm
@@ -325,7 +364,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-exact-commit-wasm
@@ -396,7 +435,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-exact-commit-wasm
@@ -494,7 +533,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-release-linux
@@ -541,7 +580,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-exact-commit-wasm
@@ -573,7 +612,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-release-storybook
@@ -611,7 +650,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
           name: gdng-release-linux
@@ -650,8 +689,13 @@ jobs:
 
   publish-release:
     name: Publish verified cross-platform GitHub Release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/gdng-v')
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/gdng-v')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'closed' &&
+       github.event.pull_request.merged == true &&
+       startsWith(github.event.pull_request.head.ref, 'automation/upstream-'))
     needs:
+      - release-gate
       - verify
       - build-wasm
       - core-sanitizers
@@ -669,7 +713,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
@@ -685,11 +729,73 @@ jobs:
         with:
           name: gdng-release-windows
           path: release-artifacts
+      - name: Resolve release version and tag
+        id: release-metadata
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./newIDE/electron-app/app/package.json").version')"
+          expected_tag="gdng-v$version"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            upstream_tag="${PR_HEAD_REF#automation/upstream-}"
+            if [[ "$upstream_tag" != "v$version" ]]; then
+              echo "Merged upstream ref $upstream_tag does not match GDNG package version $version." >&2
+              exit 1
+            fi
+            tag="gdng-$upstream_tag"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [[ "$tag" != "$expected_tag" ]]; then
+            echo "Release tag must be $expected_tag, got $tag." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create immutable tag for the merged upstream release
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
+          RELEASE_SHA: ${{ env.GDNG_SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          ref_path="repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          error_file="$(mktemp)"
+          if existing_ref="$(gh api "$ref_path" 2>"$error_file")"; then
+            object_type="$(jq -r '.object.type' <<< "$existing_ref")"
+            object_sha="$(jq -r '.object.sha' <<< "$existing_ref")"
+            if [[ "$object_type" == "tag" ]]; then
+              object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq '.object.sha')"
+            fi
+            if [[ "$object_sha" != "$RELEASE_SHA" ]]; then
+              echo "Refusing to move $RELEASE_TAG: it already points to $object_sha, not $RELEASE_SHA." >&2
+              exit 1
+            fi
+            echo "$RELEASE_TAG already points to the expected commit; continuing idempotently."
+          else
+            error="$(cat "$error_file")"
+            if [[ "$error" != *"HTTP 404"* && "$error" != *"Not Found"* ]]; then
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              exit 1
+            fi
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" \
+              -f "sha=$RELEASE_SHA"
+          fi
+          rm -f "$error_file"
+
       - name: Publish verified release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GDNG_RELEASE_TAG: ${{ steps.release-metadata.outputs.tag }}
+          GDNG_SOURCE_SHA: ${{ env.GDNG_SOURCE_SHA }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -714,7 +820,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24.13.0

@@ -178,6 +178,7 @@ for (const workflowName of requiredCircleWorkflows) {
 const ghaTriggers = extractTopLevelSection(releaseWorkflow, 'on');
 assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
 assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
+assert.match(ghaTriggers, /pull_request:[\s\S]*?types:[\s\S]*?closed[\s\S]*?branches:[\s\S]*?custom/);
 assert.match(ghaTriggers, /workflow_dispatch:/);
 
 const ghaJobs = extractTopLevelSection(releaseWorkflow, 'jobs');
@@ -193,6 +194,7 @@ assert.ok(
   'A newer branch-validation push must supersede older runs without cancelling tag/manual runs.'
 );
 const requiredGhaJobs = [
+  'release-gate',
   'verify',
   'build-wasm',
   'core-sanitizers',
@@ -211,7 +213,14 @@ for (const jobName of requiredGhaJobs) {
   extractIndentedSection(ghaJobs, jobName, 2);
 }
 
+const gateJob = extractIndentedSection(ghaJobs, 'release-gate', 2);
+assert.ok(gateJob.includes('steps.route.outputs.should_build'));
+assert.ok(gateJob.includes('github.event.pull_request.head.ref'));
+assert.match(gateJob, /automation\/upstream-/);
+
 const wasmJob = extractIndentedSection(ghaJobs, 'build-wasm', 2);
+assert.match(wasmJob, /needs: \[release-gate\]/);
+assert.match(wasmJob, /if: needs\.release-gate\.outputs\.should_build == 'true'/);
 assert.match(wasmJob, /emsdk install 3\.1\.21/);
 assert.match(wasmJob, /npm run build/);
 assert.match(wasmJob, /npm test -- --runInBand/);
@@ -286,6 +295,12 @@ for (const [jobName, requiredArg] of [
   assert.ok(job.includes(requiredArg), jobName + ' is missing its platform build target.');
 }
 
+for (const jobName of ['core-sanitizers', 'wasm-debug-sanitizers']) {
+  const job = extractIndentedSection(ghaJobs, jobName, 2);
+  assert.match(job, /needs: \[release-gate\]/);
+  assert.match(job, /if: needs\.release-gate\.outputs\.should_build == 'true'/);
+}
+
 const cliJob = extractIndentedSection(ghaJobs, 'cli-html5-export', 2);
 assert.match(cliJob, /needs: \[build-linux\]/);
 assert.match(cliJob, /--zipPath=/);
@@ -320,6 +335,7 @@ assert.match(editorVisualJob, /--suite=editor/);
 assert.match(editorVisualJob, /--gdevelop-zip=/);
 
 const publisherJob = extractIndentedSection(ghaJobs, 'publish-release', 2);
+assert.match(publisherJob, /github\.event_name == 'push'[\s\S]*?refs\/tags\/gdng-v[\s\S]*?github\.event_name == 'pull_request'[\s\S]*?pull_request\.merged == true[\s\S]*?automation\/upstream-/);
 for (const dependency of [
   'verify',
   'build-wasm',
@@ -337,6 +353,10 @@ for (const dependency of [
     'Release publisher must wait for ' + dependency
   );
 }
+assert.match(publisherJob, /Resolve release version and tag/);
+assert.match(publisherJob, /Create immutable tag for the merged upstream release/);
+assert.ok(publisherJob.includes('steps.release-metadata.outputs.tag'));
+assert.ok(publisherJob.includes('GDNG_SOURCE_SHA: ${{ env.GDNG_SOURCE_SHA }}'));
 assert.match(publisherJob, /contents: write/);
 assert.match(publisherJob, /GITHUB_TOKEN:/);
 assert.match(publisherJob, /node scripts\/publish-gdng-release\.cjs/);
@@ -351,6 +371,7 @@ assert.doesNotMatch(publisherJob, /GDNG_GITHUB_TOKEN/);
 
 const publisher = read('scripts/publish-gdng-release.cjs');
 assert.match(publisher, /GITHUB_TOKEN/);
+assert.match(publisher, /GDNG_SOURCE_SHA/);
 assert.match(publisher, /GITHUB_REF_NAME/);
 assert.match(publisher, /requireArchitecturePair/);
 assert.match(publisher, /--validate-only/);
@@ -397,6 +418,7 @@ assert.match(fallbackTriggers, /workflow_dispatch:/);
 assert.doesNotMatch(fallbackTriggers, /^  push:/m);
 
 const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
+assert.match(upstreamSync, /branch="automation\/upstream-\$tag"/);
 assert.match(upstreamSync, /git merge --abort/);
 assert.match(upstreamSync, /grep -Fxq '\.circleci\/config\.yml'/);
 const syncVerifierIndex = upstreamSync.indexOf('node scripts/verify-gdng-ci.cjs');

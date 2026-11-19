@@ -127,11 +127,11 @@ CircleCI remains the upstream-derived branch validation pipeline at `.circleci/c
 
 ### Authoritative multi-platform GitHub Release workflow
 
-`.github/workflows/release-multiplatform.yml` is the only workflow that publishes GDNG versioned releases. It is triggered by pushing a tag matching `gdng-v*`, and then verifies that the tag exactly matches `newIDE/electron-app/app/package.json`.
+`.github/workflows/release-multiplatform.yml` is the only workflow that publishes GDNG versioned releases. It supports two independent entry points: (1) push a matching `gdng-vX.Y.Z` tag for a deliberately selected commit, or (2) merge an upstream sync PR from `automation/upstream-vX.Y.Z` into `custom`. The second path is accepted only after the PR is merged; unrelated PR closures are filtered out before starting the expensive build matrix.
 
 The release graph performs these steps:
 
-1. Builds `GDevelop.js` and `libGD.wasm` once from the tagged commit using Emscripten 3.1.21. The exact artifact is passed to all three desktop build jobs; no prebuilt upstream or S3 binary is used.
+1. Builds `GDevelop.js` and `libGD.wasm` once from the exact selected source commit (manual tag commit or merged upstream PR commit) using Emscripten 3.1.21. The exact artifact is passed to all three desktop build jobs; no prebuilt upstream or S3 binary is used.
 2. Builds Windows x64 (unsigned NSIS installer and portable ZIP), Linux x64/arm64 (AppImage, DEB and portable ZIP), and macOS universal (DMG and ZIP). The macOS job uses the supported `macos-15-intel` GitHub-hosted runner; the retired `macos-14` label is not used. The electron-builder config must not pin one host-installed `electronDist`: electron-builder resolves Electron separately for each target architecture. CI verifies x64/arm64 ELF machine types inside Linux AppImages and portable ZIPs, DEB architecture metadata, and both Mach-O slices in the macOS app executable and Electron Framework.
 3. Runs the IDE unit suite, Flow, GDJS TypeScript checks, GDevelop.js tests, native GDCore ASan/UBSan tests, and the debug-sanitizers/clang-tidy GDevelop.js checks.
 4. Runs Linux CLI HTML5 export against the just-built Linux ZIP, the complete Storybook visual suite, and the packaged-editor visual suite against that same Linux ZIP.
@@ -139,11 +139,13 @@ The release graph performs these steps:
 
 The publisher rejects missing architectures, empty or duplicate assets, and mismatched tags. It generates `gdng-release-metadata.json` and `SHA256SUMS.txt`, creates a GitHub draft Release, uploads all binaries, and publishes the draft only after every upload succeeds. It never overwrites an already published release or deletes assets from a draft that it does not own.
 
-A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. It **does not** create or publish a release. The workflow also runs this validation automatically when commits are pushed to `ci/full-multiplatform-builds`; use that run to validate the complete matrix before merging and creating the real version tag.
+A merged `automation/upstream-vX.Y.Z` PR follows the same platform matrix. The workflow checks that the version in `newIDE/electron-app/app/package.json` matches the upstream PR tag, then creates the immutable `gdng-vX.Y.Z` tag on the exact merge commit in `custom` and publishes the release. The tag is created only after all required build and test jobs succeed. Re-runs accept that tag only when it already points to the same commit; an existing tag on another commit is never moved. The tag-triggered path remains available for manually selected commits and uses the same build matrix and publisher.
+
+A manual `workflow_dispatch` run builds and tests the same platform matrix, then runs the publisher in `--validate-only` mode. It **does not** create or publish a release. The workflow also runs this validation automatically when commits are pushed to `ci/full-multiplatform-builds`; use that run to validate the complete matrix before merging the CI PR.
 
 GitHub Actions uses its repository-scoped `GITHUB_TOKEN` with `contents: write`; no CircleCI project activation, PAT or manually stored release secret is required. The release binaries are unsigned. Windows SmartScreen and macOS Gatekeeper warnings may appear; signing and notarization can be added later with GDNG-owned certificates.
 
-For the current upstream release `v5.6.287`, the editor package version is `5.6.287`. After merging the release workflow into `custom` and validating the full manual matrix, publish the matching GDNG tag:
+For a deliberately selected manual release of the current package version `5.6.287`, the matching tag remains `gdng-v5.6.287`. After merging the release workflow into `custom` and validating the full manual matrix, publish it with:
 
 ```powershell
 git switch custom
@@ -152,7 +154,7 @@ git tag gdng-v5.6.287
 git push origin gdng-v5.6.287
 ```
 
-GitHub Actions will then build from that exact tag and publish the Release automatically. Do not tag before the PR has merged and the manual validation run has passed.
+GitHub Actions will then build from that exact tag and publish the Release automatically. For routine upstream updates, do not create this tag manually: merging the reviewed `automation/upstream-vX.Y.Z` PR into `custom` starts the same release pipeline and creates the GDNG tag after the matrix passes.
 
 ### Upstream merge protection
 
