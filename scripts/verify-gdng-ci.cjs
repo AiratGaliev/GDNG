@@ -234,6 +234,12 @@ for (const jobName of requiredGhaJobs) {
 const gateJob = extractIndentedSection(ghaJobs, 'release-gate', 2);
 assert.ok(gateJob.includes('steps.route.outputs.should_build'));
 assert.ok(gateJob.includes('github.event.pull_request.head.ref'));
+assert.ok(gateJob.includes('github.event.pull_request.head.repo.full_name'));
+assert.match(
+  gateJob,
+  /PR_HEAD_REPO.*GITHUB_REPOSITORY/,
+  'Upstream release gate must accept only PR branches from this repository, never forks.'
+);
 assert.match(gateJob, /automation\/upstream-/);
 
 const wasmJob = extractIndentedSection(ghaJobs, 'build-wasm', 2);
@@ -379,7 +385,7 @@ assert.match(editorVisualJob, /--suite=editor/);
 assert.match(editorVisualJob, /--gdevelop-zip=/);
 
 const publisherJob = extractIndentedSection(ghaJobs, 'publish-release', 2);
-assert.match(publisherJob, /github\.event_name == 'push'[\s\S]*?refs\/tags\/gdng-v[\s\S]*?github\.event_name == 'pull_request'[\s\S]*?pull_request\.merged == true[\s\S]*?automation\/upstream-/);
+assert.match(publisherJob, /github\.event_name == 'push'[\s\S]*?refs\/tags\/gdng-v[\s\S]*?github\.event_name == 'pull_request'[\s\S]*?pull_request\.merged == true[\s\S]*?head\.repo\.full_name == github\.repository[\s\S]*?automation\/upstream-/);
 for (const dependency of [
   'verify',
   'build-wasm',
