@@ -63,7 +63,7 @@ const getPortableBuild = async ({ zipPath, workDirectory, log }) => {
       log,
     });
   }
-  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\\.zip$/i);
+  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\.zip$/i);
   const version = versionMatch ? versionMatch[1] : electronAppPackageJson.version;
 
   const extractedDirectory = path.join(workDirectory, `gdevelop-${version}`);

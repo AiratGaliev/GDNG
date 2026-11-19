@@ -86,7 +86,7 @@ const fail = msg => {
       log: message => shell.echo(message),
     });
   }
-  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\\.zip$/i);
+  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\.zip$/i);
   if (versionMatch) version = versionMatch[1];
   shell.echo(`ℹ️ GDNG version: ${version}`);
 
