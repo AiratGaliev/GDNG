@@ -458,8 +458,8 @@ assert.doesNotMatch(cliExport, /S3|s3/);
 
 const windowsFallback = read('.github/workflows/build-portable-windows.yml');
 const fallbackTriggers = extractTopLevelSection(windowsFallback, 'on');
+assert.match(fallbackTriggers, /push:\s*\n\s+branches:\s*\n\s+- custom/);
 assert.match(fallbackTriggers, /workflow_dispatch:/);
-assert.doesNotMatch(fallbackTriggers, /^  push:/m);
 
 const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
 assert.match(upstreamSync, /branch="automation\/upstream-\$tag"/);
