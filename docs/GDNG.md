@@ -65,7 +65,7 @@ The automation uses the repository-scoped `GITHUB_TOKEN`; no personal access tok
 
 ## Build and artifacts
 
-`.github/workflows/build-portable-windows.yml` runs on pushes to `main` and can also be manually dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
+`.github/workflows/build-portable-windows.yml` is manual-only and can be dispatched against a branch, tag or commit. The upstream-sync workflow dispatches it against each candidate update branch. It remains a validation/build workflow, not a release publisher.
 
 The workflow runs the complete IDE unit suite and Flow on Ubuntu (the upstream resource-path tests assume POSIX path semantics), checks GDJS TypeScript types, then builds an unsigned portable Windows ZIP on Windows and uploads it as a GitHub Actions artifact for 30 days. It does not publish installers, sign binaries, create a GitHub Release, or deploy anything externally.
 
