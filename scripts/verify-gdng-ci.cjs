@@ -546,6 +546,7 @@ assert.equal(editorConfig.appId, 'com.gdng.editor');
 
 const cliExport = read('newIDE/app/scripts/test-portable-cli-export.js');
 assert.match(cliExport, /portableZipName = 'gdng-' \+ version \+ '\.zip'/);
+assert.match(cliExport, /const branch = args\['branch'\] \|\| 'main'/);
 assert.match(cliExport, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
 assert.doesNotMatch(cliExport, /S3|s3/);
 
@@ -578,6 +579,14 @@ const fastIdeJob = extractIndentedSection(fastJobs, 'ide-fast-checks', 2);
 for (const command of ['npm run lint', 'npm run check-format', 'npm run flow', 'npm run check-script-types', 'npm test -- --watchAll=false --runInBand']) {
   assert.ok(fastIdeJob.includes(command), 'Fast PR checks must include ' + command);
 }
+const fastIdeGDevelopInstall = fastIdeJob.indexOf('working-directory: GDevelop.js');
+const fastIdeAppInstall = fastIdeJob.indexOf('working-directory: newIDE/app');
+assert.ok(
+  fastIdeGDevelopInstall >= 0 &&
+    fastIdeAppInstall > fastIdeGDevelopInstall &&
+    fastIdeJob.includes('Install GDevelop.js runtime tooling for exact-commit resource import'),
+  'Fast IDE checks must install GDevelop.js tooling before the IDE postinstall imports exact-commit libGD files.'
+);
 const fastGdjsJob = extractIndentedSection(fastJobs, 'gdjs-fast-checks', 2);
 for (const command of ['npm run check-types', 'npm run generate-doc', 'npm run check-format', 'npm run build', 'npm run test:chromeHeadlessNoSandbox']) {
   assert.ok(fastGdjsJob.includes(command), 'Fast GDJS checks must include ' + command);
@@ -594,7 +603,7 @@ assert.ok(dailyTriggers.includes('0 16 * * *'));
 assert.match(dailyTriggers, /workflow_dispatch:/);
 const dailyJobs = extractTopLevelSection(dailyE2EWorkflow, 'jobs');
 const latestMainBuild = extractIndentedSection(dailyJobs, 'find-latest-main-build', 2);
-assert.match(latestMainBuild, /release-multiplatform\.yml\/runs\?branch=main/);
+assert.match(latestMainBuild, /release-multiplatform\.yml\/runs\?branch=main&status=completed&per_page=100/);
 assert.match(latestMainBuild, /conclusion == "success"/);
 assert.match(latestMainBuild, /gdng-release-linux/);
 for (const jobName of ['cli-html5-export', 'packaged-editor-visual-tests']) {

@@ -1,7 +1,7 @@
 // @ts-check
 const fs = require('fs');
-const {default: axios} = require('axios');
-const HttpsProxyAgent = require('https-proxy-agent');
+const { default: axios } = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 let temporaryFileCounter = 0;
 
@@ -16,7 +16,9 @@ let temporaryFileCounter = 0;
  * @returns {Promise<void>}
  */
 const downloadLocalFile = async (url, outputPath) => {
-  const temporaryPath = `${outputPath}.${process.pid}-${temporaryFileCounter++}.tmp`;
+  const temporaryPath = `${outputPath}.${
+    process.pid
+  }-${temporaryFileCounter++}.tmp`;
   try {
     // Axios 0.18 does not correctly tunnel HTTPS requests through the
     // HTTPS_PROXY environment variable on modern Node.js. Use an explicit
@@ -28,6 +30,7 @@ const downloadLocalFile = async (url, outputPath) => {
       process.env.http_proxy ||
       process.env.HTTP_PROXY;
     const isHttpsUrl = url.startsWith('https:');
+    /** @type {import('axios').AxiosRequestConfig} */
     const requestOptions = {
       responseType: 'stream',
       ...(isHttpsUrl && proxyUrl

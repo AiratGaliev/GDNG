@@ -189,6 +189,12 @@ jobs:
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
           python -m pip install --upgrade setuptools
+      # The IDE postinstall invokes GDevelop.js/scripts/copy-to-newIDE.js when
+      # the exact-commit WASM artifact is present. Install its shelljs/runtime
+      # dependencies before importing those resources into newIDE/app.
+      - name: Install GDevelop.js runtime tooling for exact-commit resource import
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
       - name: Install IDE dependencies and import exact-commit resources
         working-directory: newIDE/app
         run: npm install --no-audit --no-fund
