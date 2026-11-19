@@ -10,6 +10,10 @@ const read = relativePath =>
 
 const circleci = read('.circleci/config.yml');
 const releaseWorkflow = read('.github/workflows/release-multiplatform.yml');
+const fastCiWorkflow = read('.github/workflows/fast-ci.yml');
+const dailyE2EWorkflow = read('.github/workflows/daily-e2e.yml');
+const portableWindowsWorkflow = read('.github/workflows/build-portable-windows.yml');
+const semaphoreConfig = read('.semaphore/semaphore.yml');
 
 function extractTopLevelSection(source, name) {
   const startPattern = new RegExp('^' + name + ':\\s*$', 'm');
@@ -155,6 +159,54 @@ assert.ok(
   'The daily Linux E2E package must consume the shared editor build.'
 );
 
+const circleVisualBuild = extractIndentedSection(
+  circleJobs,
+  'build-storybook-for-visual-tests',
+  2
+);
+assert.doesNotMatch(circleVisualBuild, /REQUIRES_EXACT_LIBGD_JS_VERSION/);
+assert.doesNotMatch(circleVisualBuild, /attach_workspace/);
+assert.match(circleVisualBuild, /write-dependencies-checksum:[\s\S]*?newIDE\/app\/package-lock\.json GDJS\/package-lock\.json/);
+assert.match(circleVisualBuild, /npm run build-storybook/);
+assert.match(circleVisualBuild, /persist_to_workspace:[\s\S]*?root: newIDE\/app[\s\S]*?- build-storybook/);
+const circleVisualTestJob = extractIndentedSection(
+  circleJobs,
+  'run-visual-monkey-tests-storybook-linux',
+  2
+);
+assert.match(circleVisualTestJob, /attach_workspace:[\s\S]*?at: newIDE\/app/);
+
+const circleDebugSanitizers = extractIndentedSection(
+  circleJobs,
+  'build-gdevelop_js-debug-sanitizers-and-extra-checks',
+  2
+);
+assert.match(circleDebugSanitizers, /install-emscripten-sdk:[\s\S]*?emsdk-3\.1\.21-linux-debug-sanitizers-v1/);
+assert.match(circleDebugSanitizers, /gdevelop\.js-emscripten-debug-sanitizers-ccache-v1-/);
+assert.match(circleDebugSanitizers, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+assert.match(circleDebugSanitizers, /CMAKE_CXX_COMPILER_LAUNCHER=ccache/);
+assert.match(circleDebugSanitizers, /save-emscripten-sdk:/);
+
+const circleAllVisual = extractIndentedSection(circleWorkflows, 'all-visual-tests', 2);
+assert.match(circleAllVisual, /equal: \[main, << pipeline\.git\.branch >>\]/);
+assert.doesNotMatch(circleAllVisual, /stable|experimental-build/);
+assert.doesNotMatch(circleAllVisual, /build-gdevelop_js-wasm-only/);
+const circleChangedVisual = extractIndentedSection(circleWorkflows, 'changed-visual-tests', 2);
+assert.ok(circleCommands.includes('--base-ref=origin/main'));
+assert.doesNotMatch(circleChangedVisual, /stable|experimental-build/);
+assert.doesNotMatch(circleChangedVisual, /build-gdevelop_js-wasm-only/);
+
+const circleMainBuilds = extractIndentedSection(circleWorkflows, 'builds', 2);
+assert.doesNotMatch(circleMainBuilds, /- stable|experimental-build/);
+for (const jobName of ['build-macos', 'build-app-for-desktop', 'build-linux', 'build-windows']) {
+  assert.ok(
+    circleMainBuilds.includes('      - ' + jobName + ':') &&
+      circleMainBuilds.includes('                - main'),
+    'CircleCI platform build ' + jobName + ' must be restricted to GDNG main.'
+  );
+}
+assert.match(semaphoreConfig, /artifact push job rendering-snapshots-results/);
+
 assert.match(circleci, /origin\/main/);
 assert.match(circleci, /- main/);
 assert.match(circleci, /equal: \[main, << pipeline\.git\.branch >>\]/);
@@ -202,6 +254,7 @@ for (const workflowName of requiredCircleWorkflows) {
 // consumes the same GDevelop.js artifact, and the publisher is gated by all
 // native, WebAssembly, IDE, CLI and visual checks.
 const ghaTriggers = extractTopLevelSection(releaseWorkflow, 'on');
+assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?main/);
 assert.match(ghaTriggers, /push:[\s\S]*?branches:[\s\S]*?ci\/full-multiplatform-builds/);
 assert.match(ghaTriggers, /tags:[\s\S]*?gdng-v\*/);
 assert.match(ghaTriggers, /pull_request:[\s\S]*?types:[\s\S]*?closed[\s\S]*?branches:[\s\S]*?main/);
@@ -292,6 +345,10 @@ const editorBuildJob = extractIndentedSection(ghaJobs, 'build-editor', 2);
 assert.match(editorBuildJob, /needs: \[build-wasm\]/);
 assert.match(editorBuildJob, /name: gdng-exact-commit-wasm/);
 assert.match(editorBuildJob, /cache: npm/);
+assert.match(editorBuildJob, /GENERATE_SOURCEMAP: 'false'/);
+assert.match(editorBuildJob, /DISABLE_ESLINT_PLUGIN: 'true'/);
+assert.match(editorBuildJob, /actions\/cache@v6[\s\S]*?babel-loader/);
+assert.match(editorBuildJob, /gdng-editor-dependencies-v1-/);
 assert.match(editorBuildJob, /working-directory: GDevelop\.js[\s\S]*?npm install --no-audit --no-fund/);
 assert.match(editorBuildJob, /working-directory: newIDE\/app[\s\S]*?npm install --no-audit --no-fund/);
 assert.ok(editorBuildJob.indexOf('working-directory: GDevelop.js') < editorBuildJob.indexOf('working-directory: newIDE/app'));
@@ -307,6 +364,7 @@ assert.match(linuxJob, /name: gdng-shared-editor[\s\S]*?path: newIDE\/app/);
 assert.match(linuxJob, /node scripts\/app-build\.js --skip-app-build/);
 assert.match(linuxJob, /node scripts\/build\.js --skip-app-build --linux --publish=never/);
 assert.match(linuxJob, /cache: npm/);
+assert.match(linuxJob, /retention-days: 7/);
 
 const windowsJob = extractIndentedSection(ghaJobs, 'build-windows', 2);
 assert.match(windowsJob, /needs: \[build-editor\]/);
@@ -325,6 +383,7 @@ assert.match(macosJob, /node scripts\/app-build\.js --skip-app-build/);
 assert.match(macosJob, /npm run build -- --skip-app-build --mac/);
 assert.doesNotMatch(macosJob, /cd GDevelop\.js|cd newIDE\/app/);
 assert.match(macosJob, /cache: npm/);
+assert.match(macosJob, /node-version: 24\.13\.0/);
 assert.match(macosJob, /runs-on: macos-15-intel/);
 assert.doesNotMatch(macosJob, /runs-on: macos-14/);
 assert.doesNotMatch(
@@ -490,10 +549,66 @@ assert.match(cliExport, /portableZipName = 'gdng-' \+ version \+ '\.zip'/);
 assert.match(cliExport, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
 assert.doesNotMatch(cliExport, /S3|s3/);
 
-const windowsFallback = read('.github/workflows/build-portable-windows.yml');
+const fastTriggers = extractTopLevelSection(fastCiWorkflow, 'on');
+assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?main/);
+assert.doesNotMatch(fastTriggers, /push:|schedule:|tags:/);
+assert.match(fastCiWorkflow, /cancel-in-progress: true/);
+const fastJobs = extractTopLevelSection(fastCiWorkflow, 'jobs');
+for (const jobName of [
+  'build-wasm',
+  'core-sanitizers',
+  'ide-fast-checks',
+  'gdjs-fast-checks',
+  'changed-storybook-tests',
+]) {
+  extractIndentedSection(fastJobs, jobName, 2);
+}
+const fastWasmJob = extractIndentedSection(fastJobs, 'build-wasm', 2);
+assert.match(fastWasmJob, /emsdk install 3\.1\.21/);
+assert.match(fastWasmJob, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
+assert.match(fastWasmJob, /npm run build/);
+assert.match(fastWasmJob, /npm test -- --runInBand/);
+assert.match(fastWasmJob, /name: gdng-fast-pr-wasm/);
+const fastCoreJob = extractIndentedSection(fastJobs, 'core-sanitizers', 2);
+assert.match(fastCoreJob, /USE_SANITIZERS="address,undefined"/);
+assert.match(fastCoreJob, /Core\/GDCore_tests/);
+const fastIdeJob = extractIndentedSection(fastJobs, 'ide-fast-checks', 2);
+for (const command of ['npm run lint', 'npm run check-format', 'npm run flow', 'npm run check-script-types', 'npm test -- --watchAll=false --runInBand']) {
+  assert.ok(fastIdeJob.includes(command), 'Fast PR checks must include ' + command);
+}
+const fastGdjsJob = extractIndentedSection(fastJobs, 'gdjs-fast-checks', 2);
+for (const command of ['npm run check-types', 'npm run generate-doc', 'npm run check-format', 'npm run build', 'npm run test:chromeHeadlessNoSandbox']) {
+  assert.ok(fastGdjsJob.includes(command), 'Fast GDJS checks must include ' + command);
+}
+const changedStorybookJob = extractIndentedSection(fastJobs, 'changed-storybook-tests', 2);
+assert.match(changedStorybookJob, /--only-changed --base-ref=origin\/main/);
+assert.match(changedStorybookJob, /has_tests=true/);
+assert.match(changedStorybookJob, /if: steps\.affected-tests\.outputs\.has_tests == 'true'/);
+assert.match(changedStorybookJob, /node run\.js --suite=storybook/);
+assert.doesNotMatch(fastCiWorkflow, /build-linux:|build-macos:|build-windows:|publish-release:/);
+
+const dailyTriggers = extractTopLevelSection(dailyE2EWorkflow, 'on');
+assert.ok(dailyTriggers.includes('0 16 * * *'));
+assert.match(dailyTriggers, /workflow_dispatch:/);
+const dailyJobs = extractTopLevelSection(dailyE2EWorkflow, 'jobs');
+const latestMainBuild = extractIndentedSection(dailyJobs, 'find-latest-main-build', 2);
+assert.match(latestMainBuild, /release-multiplatform\.yml\/runs\?branch=main/);
+assert.match(latestMainBuild, /conclusion == "success"/);
+assert.match(latestMainBuild, /gdng-release-linux/);
+for (const jobName of ['cli-html5-export', 'packaged-editor-visual-tests']) {
+  const job = extractIndentedSection(dailyJobs, jobName, 2);
+  assert.match(job, /needs: \[find-latest-main-build\]/);
+  assert.match(job, /actions\/download-artifact@v7/);
+  assert.ok(job.includes('run-id: ${{ needs.find-latest-main-build.outputs.run_id }}'));
+}
+assert.match(dailyJobs, /--example=3d-platformer/);
+assert.match(dailyJobs, /--suite=editor/);
+assert.doesNotMatch(dailyE2EWorkflow, /node scripts\/build\.js|publish-release/);
+
+const windowsFallback = portableWindowsWorkflow;
 const fallbackTriggers = extractTopLevelSection(windowsFallback, 'on');
-assert.match(fallbackTriggers, /push:\s*\n\s+branches:\s*\n\s+- main/);
 assert.match(fallbackTriggers, /workflow_dispatch:/);
+assert.doesNotMatch(fallbackTriggers, /push:/);
 
 const benchmarkWorkflow = read('.github/workflows/benchmarks.yml');
 assert.match(benchmarkWorkflow, /branches:[\s\S]*?- main/);

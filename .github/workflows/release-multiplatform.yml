@@ -3,6 +3,7 @@ name: Build and publish GDNG cross-platform release
 on:
   push:
     branches:
+      - main
       - ci/full-multiplatform-builds
     tags:
       - 'gdng-v*'
@@ -90,6 +91,16 @@ jobs:
             GDevelop.js/package-lock.json
             GDJS/package-lock.json
             newIDE/app/package-lock.json
+      - name: Restore IDE and runtime dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-verify-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-verify-dependencies-v1-${{ runner.os }}-
       - name: Configure public Git dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -139,6 +150,13 @@ jobs:
           node-version: 24.13.0
           cache: npm
           cache-dependency-path: GDevelop.js/package-lock.json
+      - name: Restore GDevelop.js dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: GDevelop.js/node_modules
+          key: gdng-wasm-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json') }}
+          restore-keys: |
+            gdng-wasm-dependencies-v1-${{ runner.os }}-
       - name: Restore compiler cache
         uses: actions/cache@v6
         with:
@@ -269,6 +287,13 @@ jobs:
           node-version: 24.13.0
           cache: npm
           cache-dependency-path: GDevelop.js/package-lock.json
+      - name: Restore debug-sanitizer dependency cache
+        uses: actions/cache@v6
+        with:
+          path: GDevelop.js/node_modules
+          key: gdng-wasm-debug-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json') }}
+          restore-keys: |
+            gdng-wasm-debug-dependencies-v1-${{ runner.os }}-
       - name: Restore debug-sanitizer compiler cache
         uses: actions/cache@v6
         with:
@@ -330,6 +355,8 @@ jobs:
     timeout-minutes: 120
     env:
       REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+      GENERATE_SOURCEMAP: 'false'
+      DISABLE_ESLINT_PLUGIN: 'true'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -346,6 +373,27 @@ jobs:
             GDevelop.js/package-lock.json
             GDJS/package-lock.json
             newIDE/app/package-lock.json
+      - name: Restore editor dependency cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-editor-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-editor-dependencies-v1-${{ runner.os }}-
+      - name: Restore weekly Babel build cache
+        id: babel-cache-period
+        shell: bash
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Cache Babel transpilation results
+        uses: actions/cache@v6
+        with:
+          path: newIDE/app/node_modules/.cache/babel-loader
+          key: gdng-editor-babel-v1-${{ runner.os }}-${{ steps.babel-cache-period.outputs.week }}-${{ github.sha }}
+          restore-keys: |
+            gdng-editor-babel-v1-${{ runner.os }}-${{ steps.babel-cache-period.outputs.week }}-
       - name: Configure public Git dependencies and build tools
         shell: bash
         run: |
@@ -405,6 +453,15 @@ jobs:
           cache-dependency-path: |
             newIDE/electron-app/package-lock.json
             newIDE/electron-app/app/package-lock.json
+      - name: Restore Linux Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
       - name: Install Linux packaging dependencies
         run: |
           sudo apt-get update
@@ -479,7 +536,7 @@ jobs:
           name: gdng-release-linux
           path: release-artifacts
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 7
 
   build-macos:
     name: macOS universal DMG and ZIP
@@ -498,11 +555,20 @@ jobs:
           path: newIDE/app
       - uses: actions/setup-node@v7
         with:
-          node-version: 20.14.0
+          node-version: 24.13.0
           cache: npm
           cache-dependency-path: |
             newIDE/electron-app/package-lock.json
             newIDE/electron-app/app/package-lock.json
+      - name: Restore macOS Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
       - name: Configure public Git dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
@@ -574,6 +640,15 @@ jobs:
           cache-dependency-path: |
             newIDE/electron-app/package-lock.json
             newIDE/electron-app/app/package-lock.json
+      - name: Restore Windows Electron dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/electron-app/node_modules
+            newIDE/electron-app/app/node_modules
+          key: gdng-electron-packaging-v1-${{ runner.os }}-${{ hashFiles('newIDE/electron-app/package-lock.json', 'newIDE/electron-app/app/package-lock.json') }}
+          restore-keys: |
+            gdng-electron-packaging-v1-${{ runner.os }}-
       - name: Configure build environment
         shell: pwsh
         run: |
@@ -712,6 +787,16 @@ jobs:
             GDevelop.js/package-lock.json
             GDJS/package-lock.json
             newIDE/app/package-lock.json
+      - name: Restore Storybook editor dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-storybook-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-storybook-dependencies-v1-${{ runner.os }}-
       - name: Install GDevelop.js runtime tooling for editor resource import
         working-directory: GDevelop.js
         run: npm install --no-audit --no-fund
@@ -750,6 +835,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0
+      - name: Restore Storybook visual dependencies and Chromium cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/visual-tests/node_modules
+            ~/.cache/puppeteer
+          key: gdng-storybook-visual-dependencies-v1-${{ runner.os }}-${{ hashFiles('newIDE/visual-tests/package-lock.json') }}
+          restore-keys: |
+            gdng-storybook-visual-dependencies-v1-${{ runner.os }}-
       - name: Install visual test dependencies and Chromium
         working-directory: newIDE/visual-tests
         run: |
@@ -790,6 +884,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0 xvfb
+      - name: Restore packaged-editor visual dependencies cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            newIDE/visual-tests/node_modules
+            ~/.cache/puppeteer
+          key: gdng-editor-visual-dependencies-v1-${{ runner.os }}-${{ hashFiles('newIDE/visual-tests/package-lock.json') }}
+          restore-keys: |
+            gdng-editor-visual-dependencies-v1-${{ runner.os }}-
       - name: Install visual test dependencies
         working-directory: newIDE/visual-tests
         run: npm install --no-audit --no-fund

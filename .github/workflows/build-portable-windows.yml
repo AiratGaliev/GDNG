@@ -1,9 +1,8 @@
 name: Build GDNG Windows portable
 
 on:
-  push:
-    branches:
-      - main
+  # Manual fallback for upstream candidate branches or local troubleshooting.
+  # The main branch now runs the complete cross-platform validation matrix.
   workflow_dispatch:
     inputs:
       source_ref:

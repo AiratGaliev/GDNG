@@ -1,0 +1,363 @@
+name: Fast PR validation
+
+# Mirrors GDevelop's fast Semaphore + branch-level CircleCI checks.
+# The full native/platform matrix and exact packaged-editor tests run on main.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gdng-fast-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max-old-space-size=8192
+
+jobs:
+  build-wasm:
+    name: Exact-commit GDevelop.js / WebAssembly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: GDevelop.js/package-lock.json
+      - name: Restore GDevelop.js dependency cache
+        uses: actions/cache@v6
+        with:
+          path: GDevelop.js/node_modules
+          key: gdng-fast-wasm-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json') }}
+          restore-keys: |
+            gdng-fast-wasm-dependencies-v1-${{ runner.os }}-
+      - name: Restore compiler cache
+        uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: gdng-fast-ccache-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gdng-fast-ccache-wasm-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install Emscripten build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ccache
+      - name: Restore Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v6
+        with:
+          path: emsdk
+          key: gdng-emsdk-3.1.21-${{ runner.os }}-${{ runner.arch }}-v1
+      - name: Install Emscripten 3.1.21 on cache miss
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/juj/emsdk.git
+          ./emsdk/emsdk install 3.1.21
+      - name: Activate Emscripten
+        run: ./emsdk/emsdk activate 3.1.21
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+      - name: Install GDevelop.js dependencies
+        working-directory: GDevelop.js
+        run: npm install --no-audit --no-fund
+      - name: Build exact-commit GDevelop.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CMAKE_C_COMPILER_LAUNCHER=ccache
+          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          source emsdk/emsdk_env.sh
+          cd GDevelop.js
+          npm run build
+          cd ..
+          test -s Binaries/embuild/GDevelop.js/libGD.js
+          test -s Binaries/embuild/GDevelop.js/libGD.wasm
+      - name: Run GDevelop.js tests
+        working-directory: GDevelop.js
+        shell: bash
+        run: |
+          source ../emsdk/emsdk_env.sh
+          npm test -- --runInBand
+      - name: Report compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gdng-fast-pr-wasm
+          path: Binaries/embuild/GDevelop.js/**
+          if-no-files-found: error
+          retention-days: 1
+
+  core-sanitizers:
+    name: GDCore tests with ASan and UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: 'true'
+      CCACHE_MAXSIZE: 1G
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: .ccache
+          key: gdng-fast-ccache-core-asan-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            gdng-fast-ccache-core-asan-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang ccache libstdc++-12-dev
+      - name: Configure GDCore tests with ASan and UBSan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build-tests-asan
+          cd .build-tests-asan
+          cmake \
+            -DBUILD_GDJS=FALSE \
+            -DBUILD_EXTENSIONS=FALSE \
+            -DBUILD_TESTS=TRUE \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DUSE_SANITIZERS="address,undefined" \
+            -DCMAKE_CXX_COMPILER="$(which clang++)" \
+            -DCMAKE_C_COMPILER="$(which clang)" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ..
+      - name: Build GDCore_tests
+        run: |
+          cmake --build .build-tests-asan --parallel 4 --target GDCore_tests
+          ccache --show-stats
+      - name: Run GDCore_tests with sanitizers
+        working-directory: .build-tests-asan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:print_stacktrace=1
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: Core/GDCore_tests
+
+  ide-fast-checks:
+    name: IDE lint, formatting, Flow, types and unit tests
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-fast-pr-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            GDevelop.js/package-lock.json
+            GDJS/package-lock.json
+            newIDE/app/package-lock.json
+      - name: Restore IDE dependency cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+          key: gdng-fast-ide-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json') }}
+          restore-keys: |
+            gdng-fast-ide-dependencies-v1-${{ runner.os }}-
+      - name: Configure public Git dependencies and build tools
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+      - name: Install IDE dependencies and import exact-commit resources
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Verify GDNG policies
+        run: |
+          node scripts/verify-gdng-local-policy.cjs
+          node scripts/verify-gdng-ci.cjs
+      - name: Run IDE lint
+        working-directory: newIDE/app
+        run: npm run lint
+      - name: Check IDE formatting
+        working-directory: newIDE/app
+        run: npm run check-format
+      - name: Run Flow type checking
+        working-directory: newIDE/app
+        run: npm run flow
+      - name: Check IDE script types
+        working-directory: newIDE/app
+        run: npm run check-script-types
+      - name: Run IDE unit tests
+        working-directory: newIDE/app
+        run: npm test -- --watchAll=false --runInBand
+
+  gdjs-fast-checks:
+    name: GDJS types, formatting, build and browser tests
+    needs: [build-wasm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      REQUIRES_EXACT_LIBGD_JS_VERSION: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: gdng-fast-pr-wasm
+          path: Binaries/embuild/GDevelop.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            GDevelop.js/package-lock.json
+            GDJS/package-lock.json
+            GDJS/tests/package-lock.json
+      - name: Restore GDJS dependency cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDJS/node_modules
+            GDJS/tests/node_modules
+          key: gdng-fast-gdjs-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDJS/package-lock.json', 'GDJS/tests/package-lock.json') }}
+          restore-keys: |
+            gdng-fast-gdjs-dependencies-v1-${{ runner.os }}-
+      - name: Configure public Git dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+      - name: Install GDJS dependencies
+        working-directory: GDJS
+        run: npm install --no-audit --no-fund
+      - name: Install GDJS browser-test dependencies
+        working-directory: GDJS/tests
+        run: npm install --no-audit --no-fund
+      - name: Restore dependency lockfile changes from postinstall
+        run: git checkout -- GDJS/package-lock.json
+      - name: Check GDJS TypeScript types
+        working-directory: GDJS
+        run: npm run check-types
+      - name: Generate GDJS documentation
+        working-directory: GDJS
+        run: npm run generate-doc
+      - name: Check GDJS formatting
+        working-directory: GDJS
+        run: npm run check-format
+      - name: Build GDJS runtime
+        working-directory: GDJS
+        run: npm run build
+      - name: Install ChromeHeadless system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1-mesa-dri libgbm1 xvfb
+      - name: Run GDJS ChromeHeadless tests
+        working-directory: GDJS/tests
+        run: xvfb-run --auto-servernum npm run test:chromeHeadlessNoSandbox
+
+  changed-storybook-tests:
+    name: Storybook visual tests affected by this PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SEMAPHORE_GIT_PR_BRANCH: ${{ github.head_ref }}
+      SEMAPHORE_GIT_BRANCH: ${{ github.head_ref }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 50
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: |
+            newIDE/app/package-lock.json
+            newIDE/visual-tests/package-lock.json
+      - name: Restore changed-visual-test dependency cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            GDevelop.js/node_modules
+            GDJS/node_modules
+            newIDE/app/node_modules
+            newIDE/visual-tests/node_modules
+          key: gdng-fast-visual-dependencies-v1-${{ runner.os }}-${{ hashFiles('GDevelop.js/package-lock.json', 'GDJS/package-lock.json', 'newIDE/app/package-lock.json', 'newIDE/visual-tests/package-lock.json') }}
+          restore-keys: |
+            gdng-fast-visual-dependencies-v1-${{ runner.os }}-
+      - name: Install visual test metadata dependencies without downloading Chromium
+        working-directory: newIDE/visual-tests
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: '1'
+        run: npm install --no-audit --no-fund
+      - name: Fetch main and list only affected Storybook tests
+        id: affected-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=50 origin main
+          cd newIDE/visual-tests
+          node run.js --suite=storybook --list-names --only-changed --base-ref=origin/main > /tmp/changed-storybook-tests.txt
+          cat /tmp/changed-storybook-tests.txt
+          if [ -s /tmp/changed-storybook-tests.txt ]; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+            echo "No Storybook visual tests are related to this PR."
+          fi
+      - name: Configure public Git dependencies and build tools
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        run: |
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git config --global --add url."https://github.com/".insteadOf "git@github.com:"
+          python -m pip install --upgrade setuptools
+      - name: Install editor dependencies
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        working-directory: newIDE/app
+        run: npm install --no-audit --no-fund
+      - name: Build Storybook
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        working-directory: newIDE/app
+        env:
+          GENERATE_SOURCEMAP: 'false'
+          DISABLE_ESLINT_PLUGIN: 'true'
+        run: npm run build-storybook
+      - name: Install Chrome runtime libraries
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libasound2t64 libgbm1 libgtk-3-0 libxss1 libatk-bridge2.0-0 libdrm2 libxkbcommon0
+      - name: Install Chromium for Puppeteer
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        working-directory: newIDE/visual-tests
+        run: node node_modules/puppeteer/install.mjs
+      - name: Run affected Storybook visual tests
+        if: steps.affected-tests.outputs.has_tests == 'true'
+        working-directory: newIDE/visual-tests
+        run: |
+          node run.js --suite=storybook \
+            --tests-file=/tmp/changed-storybook-tests.txt \
+            --artifacts-dir=/tmp/visual-tests-artifacts \
+            --junit-path=/tmp/visual-tests-results/results.xml
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.affected-tests.outputs.has_tests == 'true'
+        with:
+          name: gdng-changed-storybook-visual-results
+          path: |
+            /tmp/visual-tests-artifacts
+            /tmp/visual-tests-results
+          if-no-files-found: ignore
+          retention-days: 7
