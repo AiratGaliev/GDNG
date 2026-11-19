@@ -11,7 +11,7 @@ GDNG is not an official GDevelop product and is not affiliated with the GDevelop
 | `origin` | `https://github.com/AiratGaliev/GDNG.git` | This downstream fork |
 | `upstream` | `https://github.com/4ian/GDevelop.git` | Official source repository |
 
-The default branch is `main`, renamed from `custom` on 19 November 2026. It was initialized from upstream release `v5.6.287` (4 November 2026). Keep downstream changes on `main` or short-lived branches based on it. The `master` branch is retained as the upstream mirror of `4ian/GDevelop`; do not develop directly on it.
+The default branch is `main`, renamed from `custom` on 19 November 2026. It was initialized from upstream release `v5.6.287` (4 November 2026). GDNG uses `dev` for engineering integration, `test` for integrated candidate validation and `main` as the release baseline. The normal route is `topic branch → dev → test → main`. The `master` branch is retained as the upstream mirror of `4ian/GDevelop`; do not develop directly on it. See [Development workflow](development-workflow.md) for branch, PR, CI, promotion and release rules.
 
 For existing local clones created before the rename, update the local branch and tracking reference once:
 

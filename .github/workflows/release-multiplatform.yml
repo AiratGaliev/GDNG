@@ -3,8 +3,8 @@ name: Build and publish GDNG cross-platform release
 on:
   push:
     branches:
+      - test
       - main
-      - ci/full-multiplatform-builds
     tags:
       - 'gdng-v*'
   pull_request:
