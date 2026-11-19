@@ -545,18 +545,15 @@ assert.equal(editorConfig.appx, undefined);
 assert.equal(editorConfig.appId, 'com.gdng.editor');
 
 const cliExport = read('newIDE/app/scripts/test-portable-cli-export.js');
-assert.match(cliExport, /portableZipName = 'gdng-' \+ version \+ '\.zip'/);
-assert.doesNotMatch(cliExport, /args\['branch'\]|const branch =/);
-assert.match(cliExport, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
-assert.doesNotMatch(cliExport, /S3|s3/);
+assert.match(cliExport, /downloadLatestMainLinuxArtifact/);
+assert.doesNotMatch(cliExport, /releases\/download\/gdng-v|S3|s3|args\['branch'\]|const branch =/);
 
 const realEditor = read('newIDE/visual-tests/lib/RealEditor.js');
-assert.match(realEditor, /github\.com\/AiratGaliev\/GDNG\/releases\/download\/gdng-v/);
-assert.doesNotMatch(realEditor, /gdevelop-releases\.s3\.amazonaws\.com|S3/);
+assert.match(realEditor, /downloadLatestMainLinuxArtifact/);
+assert.doesNotMatch(realEditor, /gdevelop-releases\.s3\.amazonaws\.com|releases\/download\/gdng-v/);
 const visualRunner = read('newIDE/visual-tests/run.js');
-assert.match(visualRunner, /args\['gdevelop-branch'\] \|\| 'main'/);
 assert.match(visualRunner, /origin\/main/);
-assert.doesNotMatch(visualRunner, /origin\/master/);
+assert.doesNotMatch(visualRunner, /origin\/master|gdevelop-branch/);
 
 const fastTriggers = extractTopLevelSection(fastCiWorkflow, 'on');
 assert.match(fastTriggers, /pull_request:[\s\S]*?branches:[\s\S]*?main/);
@@ -659,14 +656,5 @@ assert.match(artifactResolver, /run',\s*'download'/);
 assert.match(artifactResolver, /conclusion === 'success'.*head_branch === 'main'/s);
 assert.match(artifactResolver, /actions:read/);
 require('./lib/download-latest-main-linux-artifact.cjs');
-const realEditorFallback = read('newIDE/visual-tests/lib/RealEditor.js');
-assert.match(realEditorFallback, /downloadLatestMainLinuxArtifact/);
-assert.doesNotMatch(realEditorFallback, /gdevelop-releases\.s3\.amazonaws\.com|releases\/download\/gdng-v/);
-const visualRunner = read('newIDE/visual-tests/run.js');
-assert.match(visualRunner, /origin\/main/);
-assert.doesNotMatch(visualRunner, /origin\/master|gdevelop-branch/);
-const cliExporter = read('newIDE/app/scripts/test-portable-cli-export.js');
-assert.match(cliExporter, /downloadLatestMainLinuxArtifact/);
-assert.doesNotMatch(cliExporter, /releases\/download\/gdng-v/);
 
 console.log('GDNG CI and GitHub Release preservation verification passed.');
