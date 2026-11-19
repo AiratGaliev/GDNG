@@ -104,27 +104,29 @@ The IDE lockfile pins `caniuse-lite` to `1.0.30001826` so Browserslist uses curr
 
 ## Manual upstream update
 
-Prefer the automated release PR. For a deliberate manual update:
+Prefer the automated release PR. If a manual upstream integration is necessary, it must still go through a reviewable PR into `main`; direct pushes to protected branches are not part of the workflow.
 
 ```powershell
-cd C:\Users\Airat\WebstormProjects\GDNG
+cd C:\\Users\\Airat\\WebstormProjects\\GDNG
 
+git fetch origin --prune
+git fetch upstream --tags
 git switch main
 git pull --ff-only origin main
-git fetch upstream --tags
 
 # Replace with the exact published upstream tag:
+git switch -c automation/manual-upstream-vX.Y.Z
 git merge --no-ff vX.Y.Z
 
 node scripts/verify-gdng-local-policy.cjs
 node scripts/verify-gdng-ci.cjs
 git diff --check
 
-# Run tests, Flow and the portable build before pushing:
-git push origin main
+git push --set-upstream origin automation/manual-upstream-vX.Y.Z
+gh pr create --base main --head automation/manual-upstream-vX.Y.Z
 ```
 
-Do not force-push `main`. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag.
+Review the complete PR diff and wait for the applicable candidate validation before merging. If the merge fails, inspect and resolve the conflict; do not reset local changes to the upstream tag. Never push the integration commit directly to `main`.
 
 ## License and attribution
 
