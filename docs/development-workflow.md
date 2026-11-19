@@ -9,7 +9,7 @@ This document defines the Git, Pull Request, CI and promotion workflow for the d
 | `main` | Protected release baseline | Accepted release candidates, upstream release integrations and verified GDNG release commits |
 | `dev` | Default engineering integration branch | Completed feature, fix, maintenance and documentation PRs |
 | `test` | Integration / release-candidate branch | A coherent promotion from `dev`, ready for full validation and functional acceptance |
-| `master` | Upstream mirror | The corresponding source history from `4ian/GDevelop`; never use it as a GDNG development base |
+| `master` | Frozen upstream reference | Read-only snapshot of upstream GDevelop history; not synchronized automatically and never a GDNG development base |
 | `automation/upstream-<tag>` | Generated upstream candidate | A temporary branch created by the scheduled upstream-release workflow; its PR targets `main` |
 
 The normal promotion path is:
@@ -23,7 +23,7 @@ topic branch  ->  dev  ->  test  ->  main
 
 The `dev` and `test` branches were initialized from `main` at commit `44eabead8a4f` on 19 November 2026. They are independent refs from that point forward; they are not aliases and do not update automatically when another branch moves.
 
-The repository default branch remains `main`. The upstream mirror `master` is intentionally separate. Never rename it, merge ordinary GDNG work into it, or use it as the base for GDNG feature branches.
+The repository default branch remains `main`. The `master` branch is frozen and read-only: it is a historical upstream reference, not a live mirror. Never expect it to receive automatic updates, rename it, merge GDNG work into it, or use it as the base for GDNG feature branches.
 
 ## 2. Starting and naming work
 
