@@ -324,7 +324,7 @@ jobs:
         run: ccache --show-stats
 
   build-editor:
-    name: Build shared web editor for Linux and Windows packaging
+    name: Build shared web editor for platform packaging
     needs: [build-wasm]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -483,7 +483,7 @@ jobs:
 
   build-macos:
     name: macOS universal DMG and ZIP
-    needs: [build-wasm]
+    needs: [build-editor]
     runs-on: macos-15-intel
     timeout-minutes: 150
     env:
@@ -494,37 +494,30 @@ jobs:
           ref: ${{ env.GDNG_SOURCE_SHA }}
       - uses: actions/download-artifact@v7
         with:
-          name: gdng-exact-commit-wasm
-          path: Binaries/embuild/GDevelop.js
+          name: gdng-shared-editor
+          path: newIDE/app
       - uses: actions/setup-node@v7
         with:
           node-version: 20.14.0
           cache: npm
           cache-dependency-path: |
-            GDevelop.js/package-lock.json
-            GDJS/package-lock.json
-            newIDE/app/package-lock.json
             newIDE/electron-app/package-lock.json
             newIDE/electron-app/app/package-lock.json
-      - name: Configure and install editor dependencies
-        shell: bash
+      - name: Configure public Git dependencies
         run: |
-          set -euo pipefail
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           git config --global --add url."https://github.com/".insteadOf "git@github.com:"
-          cd GDevelop.js
-          npm install --no-audit --no-fund
-          cd ..
-          export REQUIRES_EXACT_LIBGD_JS_VERSION=true
-          cd newIDE/app
-          npm install --no-audit --no-fund
-          cd ../electron-app
-          npm install --no-audit --no-fund
+      - name: Install Electron application dependencies
+        working-directory: newIDE/electron-app
+        run: npm install --no-audit --no-fund
+      - name: Stage the shared web editor for Electron packaging
+        working-directory: newIDE/electron-app
+        run: node scripts/app-build.js --skip-app-build
       - name: Build universal macOS DMG and ZIP
         working-directory: newIDE/electron-app
         env:
           NODE_OPTIONS: --max-old-space-size=7168
-        run: npm run build -- --mac --publish=never
+        run: npm run build -- --skip-app-build --mac --publish=never
       - name: Verify universal macOS executable architectures
         shell: bash
         run: |

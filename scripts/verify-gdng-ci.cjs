@@ -249,6 +249,13 @@ assert.ok(
   'Verification must install GDevelop.js tooling before newIDE/app postinstall imports the local Core bindings.'
 );
 
+const idePackageLock = JSON.parse(read('newIDE/app/package-lock.json'));
+assert.equal(
+  idePackageLock.packages['node_modules/caniuse-lite']?.version,
+  '1.0.30001826',
+  'The IDE lockfile must pin refreshed caniuse-lite data so Browserslist does not emit stale-data warnings.'
+);
+
 const editorBuildJob = extractIndentedSection(ghaJobs, 'build-editor', 2);
 assert.match(editorBuildJob, /needs: \[build-wasm\]/);
 assert.match(editorBuildJob, /name: gdng-exact-commit-wasm/);
@@ -280,9 +287,11 @@ assert.doesNotMatch(windowsJob, /Push-Location GDevelop\.js/);
 assert.doesNotMatch(windowsJob, /Push-Location newIDE\/app/);
 
 const macosJob = extractIndentedSection(ghaJobs, 'build-macos', 2);
-assert.match(macosJob, /needs: \[build-wasm\]/);
-assert.match(macosJob, /name: gdng-exact-commit-wasm/);
-assert.match(macosJob, /npm run build -- --mac/);
+assert.match(macosJob, /needs: \[build-editor\]/);
+assert.match(macosJob, /name: gdng-shared-editor[\s\S]*?path: newIDE\/app/);
+assert.match(macosJob, /node scripts\/app-build\.js --skip-app-build/);
+assert.match(macosJob, /npm run build -- --skip-app-build --mac/);
+assert.doesNotMatch(macosJob, /cd GDevelop\.js|cd newIDE\/app/);
 assert.match(macosJob, /cache: npm/);
 assert.match(macosJob, /runs-on: macos-15-intel/);
 assert.doesNotMatch(macosJob, /runs-on: macos-14/);
@@ -296,12 +305,6 @@ assert.match(windowsJob, /needs: \[build-editor\]/);
 assert.match(windowsJob, /--skip-app-build --win nsis --publish=never/);
 assert.match(windowsJob, /--skip-app-build --win zip --publish=never/);
 assert.match(windowsJob, /name: gdng-release-windows/);
-assert.ok(
-  macosJob.indexOf('cd GDevelop.js') >= 0 &&
-    macosJob.indexOf('cd GDevelop.js') <
-      macosJob.indexOf('cd newIDE/app'),
-  'macOS must install GDevelop.js tooling before newIDE/app postinstall.'
-);
 
 for (const [jobName, requiredArg] of [
   ['build-linux', '--linux'],
