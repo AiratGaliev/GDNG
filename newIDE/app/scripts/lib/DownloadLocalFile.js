@@ -1,7 +1,14 @@
 // @ts-check
 const fs = require('fs');
 const {default: axios} = require('axios');
-const HttpsProxyAgent = require('https-proxy-agent');
+const httpsProxyAgentModule = require('https-proxy-agent');
+/**
+ * https-proxy-agent@5 exports a constructable CommonJS class. Its legacy
+ * declaration is surfaced as a call signature by this project's TS 4.1
+ * checker, so describe the actual runtime constructor contract explicitly.
+ * @type {new (proxy: string) => import('https').Agent}
+ */
+const HttpsProxyAgent = httpsProxyAgentModule;
 
 let temporaryFileCounter = 0;
 
@@ -28,6 +35,7 @@ const downloadLocalFile = async (url, outputPath) => {
       process.env.http_proxy ||
       process.env.HTTP_PROXY;
     const isHttpsUrl = url.startsWith('https:');
+    /** @type {import('axios').AxiosRequestConfig} */
     const requestOptions = {
       responseType: 'stream',
       ...(isHttpsUrl && proxyUrl
