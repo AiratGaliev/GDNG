@@ -1,4 +1,4 @@
-# GDNG â€” GDevelop Next Generation
+# GDNG — GDevelop Next Generation
 
 GDNG is an independently maintained downstream fork of [GDevelop](https://github.com/4ian/GDevelop). It keeps the upstream editor, Core, GDJS runtime and built-in extensions while maintaining a small set of local-editor changes.
 

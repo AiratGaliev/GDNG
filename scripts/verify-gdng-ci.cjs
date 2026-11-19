@@ -61,6 +61,23 @@ assert.match(circleCommands, /^  write-dependencies-checksum:/m);
 assert.match(circleCommands, /^  install-emscripten-sdk:/m);
 assert.match(circleCommands, /^  save-emscripten-sdk:/m);
 
+const checksumCommand = extractIndentedSection(
+  circleCommands,
+  'write-dependencies-checksum',
+  2
+);
+assert.match(
+  checksumCommand,
+  /command:\\s*\\|[\\s\\S]*?for lock_file in << parameters\\.lock-files >>; do[\\s\\S]*?sha256sum "\\$lock_file"[\\s\\S]*?done \\| sha256sum \\| cut -d ' ' -f1 > ci-dependencies-checksum\\.txt/,
+  'CircleCI lockfile checksum command must iterate over the parameterized files and produce a stable digest.'
+);
+assert.doesNotMatch(
+  checksumCommand,
+  /cat\\s+<</,
+  'Do not use an incomplete heredoc/redirection for the CircleCI lockfile checksum.'
+);
+
+
 const wasmBuild = extractIndentedSection(
   circleJobs,
   'build-gdevelop_js-wasm-only',

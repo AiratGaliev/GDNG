@@ -39,7 +39,12 @@ commands:
     steps:
       - run:
           name: Compute the checksum of the dependencies lock files
-          command: cat << parameters.lock-files >> | shasum -a 256 > ci-dependencies-checksum.txt
+          command: |
+            set -euo pipefail
+            for lock_file in << parameters.lock-files >>; do
+              test -f "$lock_file"
+              sha256sum "$lock_file"
+            done | sha256sum | cut -d ' ' -f1 > ci-dependencies-checksum.txt
 
   # Install the Emscripten SDK, from the cache when possible. The cache also
   # holds the system libraries (libc, libc++...) that Emscripten builds the
