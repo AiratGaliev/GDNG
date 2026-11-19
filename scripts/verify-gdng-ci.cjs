@@ -413,7 +413,7 @@ const dispatchValidation = extractIndentedSection(
 assert.match(dispatchValidation, /--validate-only/);
 assert.match(
   releaseWorkflow,
-  /release_tag:[\\s\\S]*?required: false/
+  /release_tag:[\s\S]*?required: false/
 );
 assert.doesNotMatch(
   releaseWorkflow,
@@ -422,7 +422,7 @@ assert.doesNotMatch(
 );
 assert.match(
   dispatchValidation,
-  /inputs\\.release_tag \\|\\| steps\\.release-version\\.outputs\\.tag/
+  /inputs\.release_tag \|\| steps\.release-version\.outputs\.tag/
 );
 assert.doesNotMatch(publisherJob, /GDNG_GITHUB_TOKEN/);
 
@@ -432,7 +432,7 @@ assert.match(publisher, /GDNG_SOURCE_SHA/);
 assert.match(publisher, /GITHUB_REF_NAME/);
 assert.match(publisher, /requireArchitecturePair/);
 assert.match(publisher, /const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev\\/GDNG -->'/);
-assert.match(publisher, /release\\.body\\.includes\\(publisherMarker\\)/);
+assert.match(publisher, /release\.body\.includes\(publisherMarker\)/);
 assert.match(publisher, /publisherMarker,/);
 assert.match(publisher, /--validate-only/);
 assert.match(publisher, /gdng-v' \+ version/);
