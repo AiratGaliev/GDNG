@@ -1,53 +1,82 @@
-# Visual tests
+# Visual monkey tests
 
-Visual tests exercise the editor in a browser and check that user interactions leave it in a valid state.
+These tests manipulate the editor like a user would - in a real browser, with
+real clicks and real drag and drops - and check after **every single
+manipulation** that nothing is broken.
 
-## Test suites
+They catch the bugs that unit tests can't see, because they only appear when
+everything runs together: something displayed that is not what the project
+contains, a manipulation acting on the wrong thing, or an error taking the whole
+editor down. A few dozen random manipulations find these in seconds.
 
-| Suite | What it tests |
-|---|---|
-| `storybook` | Individual editor components and their displayed state |
-| `editor` | The packaged editor opening and editing a real project |
+## Two suites
 
-Use Storybook tests for precise component checks. Use editor tests for end-to-end smoke coverage.
+| | `storybook-tests/` | `editor-tests/` |
+| --- | --- | --- |
+| Runs on | The Storybook stories of one editor | A real packaged app opening a real game |
+| Checks | What is displayed vs. what the project contains | The editor is there and nothing throws |
+| For | Precise tests of one editor | Smoke tests: "nothing is badly broken" |
 
-## Run tests
+The Storybook suite can check much more, because a story can expose the object
+being edited. The editor suite runs the real thing, but can only look at the
+page - and anything going through a menu (native menus on the desktop app), a
+file picker or an external editor window is left to the Storybook suite.
 
-From this directory:
+## Running them
 
-```sh
-npm install
+```bash
+cd newIDE/visual-tests
+npm install                             # also downloads the Chrome to run in
+
 node run.js --list
-node run.js --suite=storybook
-node run.js --suite=editor --gdevelop-zip=../electron-app/dist/<package>.zip
+node run.js --suite=storybook           # builds Storybook if needed, then runs
+node run.js --suite=editor              # downloads the latest successful main build (requires gh auth)
+node run.js --suite=all
 ```
 
-To run the editor suite without `--gdevelop-zip`, install and authenticate the GitHub CLI (`gh auth login`). The runner downloads the latest successful Linux build from `main`. That build does not include unmerged changes from your branch; pass a package built from your changes when testing those changes.
+| Option | |
+| --- | --- |
+| `--test=<part of a name>` | Only run the tests whose name contains this |
+| `--headful` | Show the browser (to see what the test does) |
+| `--verbose` | Log every manipulation of the random sessions |
+| `--storybook-url=<url>` | Use a Storybook already running instead of building |
+| `--rebuild-storybook` | Rebuild Storybook even if already built |
+| `--gdevelop-zip=<path>` | Use this portable build instead of downloading one |
+| `--editor-monkey-steps=<n>` | Manipulations of a random session on the real app |
+| `--artifacts-dir=<path>` | Where screenshots and logs go (default: `artifacts`) |
+| `--chrome-path=<path>` | The Chrome to run in |
+| `--only-changed --base-ref=<ref>` | Only run the tests related to what changed |
+| `--list-names`, `--tests-file=<path>` | List / run exactly these tests (used to split them across the CI containers) |
+| `--junit-path=<path>` | Write the results as JUnit |
 
-Useful options:
+On a branch, the CI only runs the tests related to what it changes (and builds
+nothing if there are none): each helper declares the sources its tests watch, in
+its `paths`, and changing the tests themselves relates every test. Everything
+runs on `main` - a change anywhere else can break an editor too - and
+`run-all-visual-tests` on a pipeline forces that on a branch.
 
-| Option | Purpose |
-|---|---|
-| `--test=<name>` | Run tests whose names contain the given text |
-| `--headful` | Show the browser while tests run |
-| `--verbose` | Log each test action |
-| `--storybook-url=<url>` | Use an already running Storybook |
-| `--rebuild-storybook` | Rebuild Storybook before testing |
-| `--gdevelop-zip=<path>` | Use a specific packaged editor |
-| `--artifacts-dir=<path>` | Choose where screenshots and logs are written |
-| `--only-changed --base-ref=<ref>` | Run tests related to changes from the selected base |
+Both suites work this way, with one difference: on a branch, the editor suite
+runs against the latest successful Linux build artifact from `main` (a branch builds no app), so
+it exercises the tests of the branch, but not its changes to the app itself -
+those are tested by the same suite on `main`, right after `build-linux`.
 
-## CI
+Running the editor suite without `--gdevelop-zip` requires the GitHub CLI
+(`gh`) installed and authenticated for `AiratGaliev/GDNG` (`gh auth login`).
+The runner selects the latest successful `release-multiplatform.yml` run on
+`main` with an unexpired `gdng-release-linux` artifact. In CI, pass the
+locally built ZIP with `--gdevelop-zip` to avoid an API download.
 
-Pull requests run the Storybook tests related to the changed code. Changing test files runs the full Storybook suite. The full visual validation runs for integrated candidates on `test` and `main`.
+A problem these tests find but are not here to guard can be listed in
+`lib/KnownIssues.js`: it is then reported loudly without failing the run, so
+that a branch is not blocked by something it did not introduce.
 
-The editor suite on a development branch uses the latest successful package from `main`, unless a package is supplied explicitly. The full validation on `test` and `main` tests the package built from that commit.
+While writing a test, `--storybook-url=http://localhost:9009 --headful
+--test=<name>` (with `npm run storybook` running) gives the fastest feedback.
 
-## Add a test
+## Writing a test
 
-Test files in `storybook-tests/` and `editor-tests/` export arrays of test cases.
-
-A Storybook test uses a helper, a story and a sequence of actions:
+A test file exports an array of tests. A Storybook test is a list of
+manipulations, or a random session ("monkey") whose seeds make it reproducible:
 
 ```js
 const spriteEditor = require('../helpers/SpriteEditor');
@@ -62,11 +91,56 @@ module.exports = [
       ['deleteAnimation', { row: 0 }],
     ],
   },
+  {
+    name: 'sprite-editor/monkey',
+    helper: spriteEditor,
+    story: 'objecteditor-spriteeditormanipulations--manipulations',
+    monkey: { seeds: [1, 2], steps: 60 },
+  },
 ];
 ```
 
-Editor tests use the same helpers while driving the packaged application. Put editor-specific actions and checks in `helpers/`; keep shared browser and test-running logic in `lib/`. Set `paths` on a test or helper to tell CI which source files it covers. Tests without watched paths run on every relevant CI run.
+An editor test opens an example game in the real app and drives it, using the
+same manipulations:
 
-Tests should verify both the action and its result. A test must fail when the editor reports an error, disappears, or does not reach the expected state.
+```js
+{
+  name: 'editor/add-a-behavior-from-the-store',
+  example: 'platformer',           // sparse-cloned from GDevelop-examples
+  helpers: [spriteEditor],         // page helpers to install (optional)
+  run: async ({ page, reporter, screenshot, runSteps, runMonkey }) => { ... },
+}
+```
 
-Known unrelated issues are listed in `lib/KnownIssues.js`. They are reported but do not fail the run; remove an entry when the issue is fixed.
+## Testing another part of the app
+
+Everything generic is in `lib/`: driving a page (`PageHelpers.js`,
+`PageDriver.js`), running and checking manipulations (`Runner.js`), the two
+suites and the reporting. None of it knows about any particular editor.
+
+An editor is described by a **helper** in `helpers/`, which is the only place
+knowing about it:
+
+| | |
+| --- | --- |
+| `installPageHelpers` | Runs in the page: finds the controls of the editor and reads what it displays. Registers a resolver so its targets (a row, a frame...) can be used like the generic ones (`{ button: 'Apply' }`, `{ selector: '#id' }`, `{ menuItem: '...' }`, `{ tab: 'Behaviors' }`). |
+| `actions` | The manipulations, with how the monkey may pick them (`pick`) and what must be true afterwards (`expect`, checked by `checkExpectation`) |
+| `describe` / `check` | What the editor displays, and whether it matches the project |
+| `snapshot` (optional) | What the manipulations may change, to tell a manipulation that did nothing from one that worked (`describe` is used otherwise), with `describeEffect` to log what changed |
+| `stepChecks` (optional) | The invariants of the editor: each one is checked after every manipulation flagged with its name (e.g. `keepsTheFrames` in the Sprite editor) |
+| `summarize` (optional) | One line describing what is displayed, logged when a story is opened |
+| `paths` | The sources its tests watch: they only run when one of these changed |
+
+`helpers/SpriteEditor.js` is the complete example. `helpers/ObjectsList.js`,
+`helpers/BehaviorsEditor.js` and `helpers/PropertiesPanel.js` are smaller ones,
+used by the editor tests to reach and manipulate other parts of the app.
+
+## What is checked after every manipulation
+
+- The page threw nothing (an uncaught error takes the editor down).
+- The editor is still displayed.
+- What it displays matches the project (when the helper can read it).
+- The manipulation actually changed something, so a test cannot pass without
+  having exercised anything.
+- Manipulations with a precise outcome (`expect`) get it checked, and the
+  invariants declared by the helper (`stepChecks`) hold.
