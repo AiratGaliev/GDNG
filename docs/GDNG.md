@@ -37,6 +37,24 @@ An automated workflow prepares pull requests for published GDevelop releases. Th
 
 Do not resolve conflicts in CI configuration by accepting one side wholesale. Preserve the GDNG workflows and verify the result.
 
+## Manual release tag
+
+A manual tag is used only when deliberately publishing a selected GDNG release. Its format is `gdng-v<version>`, where `<version>` must exactly match the `version` field in `newIDE/electron-app/app/package.json`. For example, the current package version `5.6.287` requires the tag `gdng-v5.6.287`.
+
+Create the tag on the accepted release commit in `main`, after the release workflow is available there:
+
+```powershell
+git switch main
+git pull --ff-only origin main
+
+$version = node -p "require('./newIDE/electron-app/app/package.json').version"
+$tag = "gdng-v$version"
+git tag $tag
+git push origin $tag
+```
+
+The tag starts the full release workflow. It publishes only after the required builds, tests and artifact checks succeed. For routine upstream updates, do not create a tag manually: merging the reviewed upstream-update PR starts the release workflow, which creates the matching GDNG tag after validation.
+
 ## License and attribution
 
 Keep upstream license files and copyright notices intact. GDevelop and its logo remain subject to the ownership and trademark notices in the upstream repository.
