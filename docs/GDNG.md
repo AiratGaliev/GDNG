@@ -76,7 +76,6 @@ Use Node.js 24 and npm. The repository's own setup scripts import the GDJS runti
 From PowerShell, run these commands from the repository root:
 
 ```powershell
-# Run from the repository root.
 python -m pip install --upgrade setuptools
 
 Push-Location newIDE\app
@@ -110,7 +109,6 @@ Prefer the automated release PR. If a manual upstream integration is necessary, 
 
 ```powershell
 # Run from the repository root.
-
 git fetch origin --prune
 git fetch upstream --tags
 git switch main
