@@ -8,7 +8,7 @@
  *      as `make-version-metadata.js`).
  *   2. Gets the matching Linux portable zip, either from a local path
  *      (via --zipPath, e.g. the artifact a build-linux job just produced)
- *      or by downloading it from the matching GDNG GitHub Release.
+ *      or by downloading the latest successful main build artifact via GitHub CLI.
  *   3. Extracts it with adm-zip.
  *   4. Sparse-clones an example game from the GDevelop-examples repository
  *      (defaults to "3d-platformer").
@@ -30,8 +30,9 @@ const { spawn } = require('child_process');
 const shell = require('shelljs');
 const AdmZip = require('adm-zip');
 const args = require('minimist')(process.argv.slice(2));
-const { downloadLocalFile } = require('./lib/DownloadLocalFile');
-const { retryIfFailed } = require('./lib/RetryIfFailed');
+const {
+  downloadLatestMainLinuxArtifact,
+} = require('../../../scripts/lib/download-latest-main-linux-artifact');
 
 const electronAppPackageJson = require('../../electron-app/app/package.json');
 
@@ -40,14 +41,11 @@ const workDir = path.resolve(args['workDir'] || './.portable-cli-test');
 const artifactsDir = path.resolve(
   args['artifactsDir'] || './portable-cli-artifacts'
 );
-// If set, use this local zip instead of downloading it from GitHub Releases
-// (useful when the smoke test runs immediately after build-linux).
+// If set, use this local zip instead of downloading the latest successful main
+// build artifact (useful when the smoke test runs immediately after build-linux).
 const localZipPath = args['zipPath'] ? path.resolve(args['zipPath']) : null;
 
-const version = electronAppPackageJson.version;
-const pathToArtifacts = 'https://github.com/AiratGaliev/GDNG/releases/download/gdng-v' + version;
-const portableZipName = 'gdng-' + version + '.zip';
-const portableZipUrl = `${pathToArtifacts}/${portableZipName}`;
+let version = electronAppPackageJson.version;
 
 const EXAMPLES_REPO = 'https://github.com/GDevelopApp/GDevelop-examples.git';
 const EXAMPLES_BRANCH = 'main';
@@ -62,7 +60,6 @@ const fail = msg => {
 };
 
 (async () => {
-  shell.echo(`ℹ️ GDevelop version (from electron-app/app/package.json): ${version}`);
   shell.echo(`ℹ️ Example: ${exampleSlug}`);
   shell.echo(`ℹ️ Work dir:      ${workDir}`);
   shell.echo(`ℹ️ Artifacts dir: ${artifactsDir}`);
@@ -85,18 +82,14 @@ const fail = msg => {
       )})`
     );
   } else {
-    portableZipPath = path.join(workDir, portableZipName);
-    shell.echo(`🌐 Downloading ${portableZipUrl} ...`);
-    await retryIfFailed(
-      { times: 3, backoff: { initialDelay: 2000, factor: 2 } },
-      () => downloadLocalFile(portableZipUrl, portableZipPath)
-    );
-    shell.echo(
-      `✅ Downloaded ${portableZipName} (${formatBytes(
-        fs.statSync(portableZipPath).size
-      )})`
-    );
+    portableZipPath = downloadLatestMainLinuxArtifact({
+      outputDirectory: workDir,
+      log: message => shell.echo(message),
+    });
   }
+  const versionMatch = path.basename(portableZipPath).match(/^gdng-(.+)\\.zip$/i);
+  if (versionMatch) version = versionMatch[1];
+  shell.echo(`ℹ️ GDNG version: ${version}`);
 
   // 2. Extract the portable zip.
   const extractedDir = path.join(workDir, `gdevelop-${version}`);

@@ -652,4 +652,21 @@ assert.ok(
   'Upstream synchronization must run the GDNG CI verifier before pushing a merge candidate.'
 );
 
+const artifactResolver = read('scripts/lib/download-latest-main-linux-artifact.cjs');
+assert.match(artifactResolver, /release-multiplatform\\.yml/);
+assert.match(artifactResolver, /gdng-release-linux/);
+assert.match(artifactResolver, /run',\\s*'download'/);
+assert.match(artifactResolver, /conclusion === 'success'.*head_branch === 'main'/s);
+assert.match(artifactResolver, /actions:read/);
+require('./lib/download-latest-main-linux-artifact.cjs');
+const realEditorFallback = read('newIDE/visual-tests/lib/RealEditor.js');
+assert.match(realEditorFallback, /downloadLatestMainLinuxArtifact/);
+assert.doesNotMatch(realEditorFallback, /gdevelop-releases\\.s3\\.amazonaws\\.com|releases\\/download\\/gdng-v/);
+const visualRunner = read('newIDE/visual-tests/run.js');
+assert.match(visualRunner, /origin\\/main/);
+assert.doesNotMatch(visualRunner, /origin\\/master|gdevelop-branch/);
+const cliExporter = read('newIDE/app/scripts/test-portable-cli-export.js');
+assert.match(cliExporter, /downloadLatestMainLinuxArtifact/);
+assert.doesNotMatch(cliExporter, /releases\\/download\\/gdng-v/);
+
 console.log('GDNG CI and GitHub Release preservation verification passed.');

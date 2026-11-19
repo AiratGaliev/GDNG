@@ -18,7 +18,6 @@ const DEBUGGING_PORT = 9333;
 const runEditorSuite = async ({ tests, options, reporter }) => {
   const { binaryPath, version } = await getPortableBuild({
     zipPath: options.gdevelopZipPath,
-    branch: options.gdevelopBranch,
     workDirectory: options.workDirectory,
     log: reporter.log,
   });

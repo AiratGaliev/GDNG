@@ -121,7 +121,6 @@ const main = async () => {
     gdevelopZipPath: args['gdevelop-zip']
       ? path.resolve(String(args['gdevelop-zip']))
       : null,
-    gdevelopBranch: args['gdevelop-branch'] || 'main',
     editorMonkeySteps: Number(args['editor-monkey-steps'] || 30),
     workDirectory: path.resolve(String(args['work-dir'] || './work')),
   };
