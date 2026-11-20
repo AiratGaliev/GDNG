@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Only list missing file/language pairs without importing
+        description: Calculate phrase-level missing translations without importing
         required: false
         type: boolean
         default: false
