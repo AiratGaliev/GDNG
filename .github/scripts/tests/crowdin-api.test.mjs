@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { countNonEmptyTranslations, countPoEntries, createCrowdinApi, mapConcurrent } from '../lib/crowdin-api.mjs';
+import { countNonEmptyTranslations, countPoEntries, createCrowdinApi, getImportReportStats, mapConcurrent } from '../lib/crowdin-api.mjs';
 
 test('counts translated singular and plural msgstr entries, including multiline values', () => {
   const po = [
@@ -10,7 +10,7 @@ test('counts translated singular and plural msgstr entries, including multiline 
     'msgid "three"', 'msgstr ""', '',
     'msgid_plural "items"', 'msgstr[0] "article"', 'msgstr[1] "articles"',
   ].join('\n');
-  assert.equal(countNonEmptyTranslations(po), 4);
+  assert.equal(countNonEmptyTranslations(po), 3);
 });
 test('counts entries without counting the PO header', () => {
   const po = ['msgid ""', 'msgstr ""', '', 'msgid "one"', 'msgstr "un"', '', 'msgid "two"', 'msgstr ""'].join('\n');
@@ -111,4 +111,37 @@ test('does not retry ambiguous server failures for POST operations', async () =>
     /failed \(503\)/
   );
   assert.equal(calls, 1);
+});
+
+
+test('counts plural forms as one translated PO phrase', () => {
+  const po = [
+    'msgid "many"',
+    'msgid_plural "many things"',
+    'msgstr[0] "uno"',
+    'msgstr[1] "varios"',
+  ].join('\n');
+
+  assert.equal(countNonEmptyTranslations(po), 1);
+});
+
+test('reads per-language and per-file import statistics from Crowdin', () => {
+  const report = {
+    data: {
+      languages: [{
+        id: 'ru',
+        files: [{
+          id: '4',
+          statistics: { phrases: 6, words: 45 },
+        }],
+        skipped: { translation_eq_source: 2, hidden_strings: 0 },
+      }],
+    },
+  };
+
+  assert.deepEqual(getImportReportStats(report, 'ru', 4), {
+    phrases: 6,
+    words: 45,
+    skipped: { translation_eq_source: 2, hidden_strings: 0 },
+  });
 });

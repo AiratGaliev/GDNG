@@ -1,4 +1,4 @@
-import { countNonEmptyTranslations, createCrowdinApi, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
+import { countNonEmptyTranslations, createCrowdinApi, getImportReportStats, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
 
 const SOURCE_PROJECT_ID = Number(process.env.SOURCE_PROJECT_ID || 79367);
 const TARGET_PROJECT_ID = Number(process.env.TARGET_PROJECT_ID || 948159);
@@ -82,7 +82,25 @@ async function importPair(api, task) {
   const label = task.languageId + '/' + task.catalog.output;
   console.log('Import started: ' + label + ', ' + entries + ' translated entries, operation ' + identifier + '.');
   await waitForImport(api, identifier, label);
-  console.log('Import finished: ' + label + '.');
+
+  const report = await api.request(
+    'projects/' + TARGET_PROJECT_ID + '/translations/imports/' + identifier + '/report'
+  );
+  const statistics = getImportReportStats(
+    report,
+    task.languageId,
+    task.catalog.targetFile.id
+  );
+
+  if (statistics.phrases === 0) {
+    throw new Error('Crowdin reported zero imported phrases for ' + label + '.');
+  }
+
+  console.log(
+    'Import finished: ' + label + ' — ' + statistics.phrases +
+    ' phrases, ' + statistics.words + ' words imported; skipped: ' +
+    JSON.stringify(statistics.skipped) + '.'
+  );
 }
 async function main() {
   if (!Number.isInteger(SOURCE_PROJECT_ID) || SOURCE_PROJECT_ID <= 0) throw new Error('SOURCE_PROJECT_ID must be positive.');

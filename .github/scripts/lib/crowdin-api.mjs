@@ -111,40 +111,70 @@ export function unwrapList(response) {
 }
 export function countNonEmptyTranslations(po) {
   let count = 0;
-  let active = false;
-  let nonEmpty = false;
-  let headerEntry = false;
-  const quotedTextExists = value => {
+  let hasEntry = false;
+  let isHeader = false;
+  let hasTranslation = false;
+  let readingTranslation = false;
+
+  const hasQuotedText = value => {
     const match = value.trim().match(/^"(?:\\.|[^"\\])*"/);
     return Boolean(match && match[0] !== '""');
   };
-  const finish = () => {
-    if (active && !headerEntry && nonEmpty) count += 1;
-    active = false;
-    nonEmpty = false;
+
+  const finishEntry = () => {
+    if (hasEntry && !isHeader && hasTranslation) count += 1;
+    hasEntry = false;
+    isHeader = false;
+    hasTranslation = false;
+    readingTranslation = false;
   };
+
   for (const line of po.split(/\r?\n/)) {
     const msgid = line.match(/^msgid\s+(.*)$/);
     if (msgid) {
-      finish();
-      headerEntry = msgid[1].trim() === '""';
+      finishEntry();
+      hasEntry = true;
+      isHeader = msgid[1].trim() === '""';
       continue;
     }
+
     const msgstr = line.match(/^msgstr(?:\[\d+\])?\s+(.*)$/);
     if (msgstr) {
-      finish();
-      active = true;
-      nonEmpty = !headerEntry && quotedTextExists(msgstr[1]);
+      readingTranslation = true;
+      if (!isHeader) hasTranslation ||= hasQuotedText(msgstr[1]);
       continue;
     }
-    if (active && /^"/.test(line.trim())) {
-      if (!headerEntry) nonEmpty ||= quotedTextExists(line.trim());
+
+    if (readingTranslation && /^"/.test(line.trim())) {
+      if (!isHeader) hasTranslation ||= hasQuotedText(line.trim());
       continue;
     }
-    if (active && (line.trim() === '' || /^(msgctxt|msgid_plural)\b/.test(line) || /^#/.test(line))) finish();
+
+    if (line.trim() === '' || /^(msgctxt|msgid_plural)\b/.test(line) || /^#/.test(line)) {
+      readingTranslation = false;
+    }
   }
-  finish();
+
+  finishEntry();
   return count;
+}
+
+export function getImportReportStats(report, languageId, fileId) {
+  const language = report?.data?.languages?.find(item => item.id === languageId);
+  const file = language?.files?.find(item => Number(item.id) === Number(fileId));
+
+  if (!file) {
+    throw new Error(
+      'Crowdin import report did not contain file ' + fileId +
+      ' for language ' + languageId + '.'
+    );
+  }
+
+  return {
+    phrases: Number(file.statistics?.phrases || 0),
+    words: Number(file.statistics?.words || 0),
+    skipped: language.skipped || {},
+  };
 }
 export function countPoEntries(po) {
   const matches = po.match(/^msgid\s+"/gm) ?? [];
