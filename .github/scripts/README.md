@@ -29,7 +29,7 @@ For each file/language pair, the importer:
 1. Exports translated upstream PO entries and the full GDNG PO catalog (including untranslated source entries).
 2. Matches source entries by gettext identity: `msgctxt` + `msgid` + `msgid_plural`. The projects have different Crowdin string IDs, so project-local numeric IDs are not used across projects.
 3. Skips any upstream entry that has no exact source identity in GDNG. It does not create or mutate GDNG source strings.
-4. Preserves every existing GDNG translation, including unapproved translations and approvals. Only destination entries with empty `msgstr` values enter the delta.
+4. Preserves every existing GDNG translation, including unapproved translations and approvals. Only destination entries with empty `msgstr` values enter the delta. Partially populated plural entries are reported separately and left untouched because a file-level re-import could affect their existing forms.
 5. Uploads the delta with `autoApproveImported=false`, waits for the asynchronous Import API operation, validates its report, then re-exports GDNG and verifies that no matched upstream translations remain missing.
 
 Source-equal translations are excluded because Crowdin skips them by default. Unmatched source identities are logged and not imported; they require source-catalog reconciliation rather than unsafe fuzzy matching. Duplicate PO identities, malformed catalogs, zero source-key overlap, failed imports and post-import gaps stop the workflow.
