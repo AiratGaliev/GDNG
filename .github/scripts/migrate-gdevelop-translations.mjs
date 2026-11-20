@@ -1,4 +1,5 @@
-import { countNonEmptyTranslations, createCrowdinApi, getImportReportStats, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
+import { createCrowdinApi, getImportReportStats, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
+import { buildMissingTranslationsPo, parsePoCatalog } from './lib/po-catalog.mjs';
 
 const SOURCE_PROJECT_ID = Number(process.env.SOURCE_PROJECT_ID || 79367);
 const TARGET_PROJECT_ID = Number(process.env.TARGET_PROJECT_ID || 948159);
@@ -31,6 +32,27 @@ const asProgressMap = rows => new Map(rows.map(row => [row.languageId, row]));
 async function fileProgress(api, projectId, fileId) {
   return unwrapList(await api.request('projects/' + projectId + '/files/' + fileId + '/languages/progress?limit=500'));
 }
+async function exportPo(api, projectId, languageId, fileId, skipUntranslatedStrings) {
+  const exported = await api.request('projects/' + projectId + '/translations/exports', {
+    method: 'POST',
+    body: {
+      targetLanguageId: languageId,
+      fileIds: [fileId],
+      skipUntranslatedStrings,
+      exportApprovedOnly: false,
+    },
+  });
+  if (!exported?.data?.url) {
+    throw new Error('Crowdin returned no PO export URL for project ' + projectId + ', file ' + fileId + ', language ' + languageId + '.');
+  }
+
+  const po = await api.downloadText(exported.data.url);
+  const catalog = parsePoCatalog(po);
+  if (!catalog.entries.length) {
+    throw new Error('Crowdin exported an empty source catalog for file ' + fileId + ', language ' + languageId + '.');
+  }
+  return po;
+}
 async function waitForImport(api, identifier, label) {
   const deadline = Date.now() + IMPORT_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -46,24 +68,37 @@ async function waitForImport(api, identifier, label) {
   throw new Error('Timed out waiting for Crowdin import ' + label + ' (' + identifier + ').');
 }
 async function importPair(api, task) {
-  const exported = await api.request('projects/' + SOURCE_PROJECT_ID + '/translations/exports', {
-    method: 'POST',
-    body: {
-      targetLanguageId: task.sourceLanguageId,
-      fileIds: [task.catalog.sourceFile.id],
-      skipUntranslatedStrings: true,
-      exportApprovedOnly: false,
-    },
-  });
-  if (!exported?.data?.url) throw new Error('Crowdin returned no upstream PO export URL.');
-  const po = await api.downloadText(exported.data.url);
-  if (!po.includes('msgid ') || !po.includes('msgstr ')) throw new Error('Upstream export is not a valid PO catalog.');
-  const entries = countNonEmptyTranslations(po);
-  if (!entries) throw new Error('Upstream progress is non-zero but the exported PO contains no translations.');
+  const label = task.languageId + '/' + task.catalog.output;
+  const [sourcePo, destinationPo] = await Promise.all([
+    exportPo(api, SOURCE_PROJECT_ID, task.sourceLanguageId, task.catalog.sourceFile.id, true),
+    // Include untranslated entries so absence is checked per source identity, not per catalog.
+    exportPo(api, TARGET_PROJECT_ID, task.languageId, task.catalog.targetFile.id, false),
+  ]);
+  const delta = buildMissingTranslationsPo(sourcePo, destinationPo);
+
+  if (delta.sourceTranslated > 0 && delta.matched === 0) {
+    throw new Error(
+      'No upstream source identities matched the GDNG catalog for ' + label +
+      '; refusing to import translations against an unverified catalog.'
+    );
+  }
+
+  console.log(
+    'Phrase merge ' + label + ': upstream translated=' + delta.sourceTranslated +
+    ', already present=' + delta.alreadyTranslated +
+    ', unmatched source identities=' + delta.unmatched +
+    ', source-equal=' + delta.sourceEqualsSource +
+    ', missing translations=' + delta.deltaEntries + '.'
+  );
+
+  if (delta.deltaEntries === 0) {
+    console.log('No Crowdin import required for ' + label + '.');
+    return;
+  }
 
   const storageId = await api.uploadStorage(
-    'gdng-upstream-' + task.languageId + '-' + task.catalog.targetFile.id + '-' + task.catalog.output,
-    po
+    'gdng-upstream-' + task.languageId + '-' + task.catalog.targetFile.id + '-missing-' + task.catalog.output,
+    delta.po
   );
   const imported = await api.request('projects/' + TARGET_PROJECT_ID + '/translations/imports', {
     method: 'POST',
@@ -79,8 +114,11 @@ async function importPair(api, task) {
   });
   const identifier = imported?.data?.identifier;
   if (!identifier) throw new Error('Crowdin returned no import operation identifier.');
-  const label = task.languageId + '/' + task.catalog.output;
-  console.log('Import started: ' + label + ', ' + entries + ' translated entries, operation ' + identifier + '.');
+
+  console.log(
+    'Import started: ' + label + ', ' + delta.deltaEntries +
+    ' missing PO entries, operation ' + identifier + '.'
+  );
   await waitForImport(api, identifier, label);
 
   const report = await api.request(
@@ -91,15 +129,31 @@ async function importPair(api, task) {
     task.languageId,
     task.catalog.targetFile.id
   );
-
   if (statistics.phrases === 0) {
     throw new Error('Crowdin reported zero imported phrases for ' + label + '.');
   }
 
+  // Re-export the destination and prove that every matched upstream translation
+  // that was missing before import now exists. This also catches QA/hidden skips.
+  const destinationAfterImport = await exportPo(
+    api,
+    TARGET_PROJECT_ID,
+    task.languageId,
+    task.catalog.targetFile.id,
+    false
+  );
+  const verification = buildMissingTranslationsPo(sourcePo, destinationAfterImport);
+  if (verification.deltaEntries > 0) {
+    throw new Error(
+      'Phrase merge verification failed for ' + label + ': ' +
+      verification.deltaEntries + ' matched translations are still missing after import.'
+    );
+  }
+
   console.log(
-    'Import finished: ' + label + ' — ' + statistics.phrases +
-    ' phrases, ' + statistics.words + ' words imported; skipped: ' +
-    JSON.stringify(statistics.skipped) + '.'
+    'Import verified: ' + label + ' — Crowdin report=' + statistics.phrases +
+    ' phrases, ' + statistics.words + ' words; skipped=' +
+    JSON.stringify(statistics.skipped) + '. Existing destination translations were not uploaded.'
   );
 }
 async function main() {
@@ -124,59 +178,41 @@ async function main() {
     targetFile: findFile(unwrapList(targetFilesResponse), catalog.name, targetProject.name),
   }));
   const languages = mapLanguages(sourceProject, targetProject);
-  const [sourceRows, targetRows] = await Promise.all([
-    Promise.all(catalogs.map(catalog => fileProgress(api, SOURCE_PROJECT_ID, catalog.sourceFile.id))),
-    Promise.all(catalogs.map(catalog => fileProgress(api, TARGET_PROJECT_ID, catalog.targetFile.id))),
-  ]);
+  const sourceRows = await Promise.all(
+    catalogs.map(catalog => fileProgress(api, SOURCE_PROJECT_ID, catalog.sourceFile.id))
+  );
   const tasks = [];
-  let skippedExisting = 0;
-  let emptyAtSource = 0;
+
   catalogs.forEach((catalog, index) => {
     const source = asProgressMap(sourceRows[index]);
-    const target = asProgressMap(targetRows[index]);
     for (const language of languages) {
       const upstreamCount = Number(source.get(language.sourceLanguageId)?.phrases?.translated || 0);
-      const destinationCount = Number(target.get(language.languageId)?.phrases?.translated || 0);
-      if (!upstreamCount) { emptyAtSource += 1; continue; }
-      // Resume-only behaviour protects every catalog that already contains destination translations.
-      if (destinationCount > 0) { skippedExisting += 1; continue; }
-      tasks.push({ ...language, catalog });
+      if (upstreamCount > 0) tasks.push({ ...language, catalog });
     }
   });
 
   console.log('Upstream project: ' + sourceProject.name + ' (' + SOURCE_PROJECT_ID + ').');
   console.log('Destination project: ' + targetProject.name + ' (' + TARGET_PROJECT_ID + ').');
-  console.log('Languages: ' + languages.length + '; existing pairs preserved: ' + skippedExisting +
-    '; empty upstream pairs: ' + emptyAtSource + '; queued imports: ' + tasks.length + '.');
+  console.log('Languages: ' + languages.length + '; source-non-empty file/language pairs: ' + tasks.length + '.');
+  console.log('Phrase-level merge: only exact source identities missing in GDNG are imported.');
   console.log('Concurrent Imports API operations: ' + CONCURRENCY + '.');
+
   if (DRY_RUN) {
-    tasks.forEach(task => console.log('DRY RUN: ' + task.languageId + '/' + task.catalog.output + ' from ' + task.sourceLanguageId + '.'));
+    tasks.forEach(task => console.log(
+      'DRY RUN: compare ' + task.sourceLanguageId + '/' + task.catalog.output +
+      ' with GDNG ' + task.languageId + '; no Crowdin writes will be made.'
+    ));
     return;
   }
 
   const errors = await mapConcurrent(tasks, CONCURRENCY, task => importPair(api, task));
   if (errors.length) {
-    throw new Error(errors.length + ' import(s) failed:\n' +
+    throw new Error(errors.length + ' phrase merge(s) failed:\n' +
       errors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\n'));
   }
 
-  const finalRows = await Promise.all(catalogs.map(catalog => fileProgress(api, TARGET_PROJECT_ID, catalog.targetFile.id)));
-  const missing = [];
-  catalogs.forEach((catalog, index) => {
-    const source = asProgressMap(sourceRows[index]);
-    const target = asProgressMap(finalRows[index]);
-    for (const language of languages) {
-      const sourceCount = Number(source.get(language.sourceLanguageId)?.phrases?.translated || 0);
-      const targetCount = Number(target.get(language.languageId)?.phrases?.translated || 0);
-      if (sourceCount > 0 && targetCount === 0) missing.push(language.languageId + '/' + catalog.output);
-    }
-    const translatedLanguages = finalRows[index].filter(row => Number(row.phrases?.translated || 0) > 0).length;
-    console.log('Final coverage ' + catalog.output + ': ' + translatedLanguages + '/' + languages.length + ' languages.');
-    const ru = finalRows[index].find(row => row.languageId === 'ru');
-    console.log('Russian ' + catalog.output + ': ' + (ru?.phrases?.translated || 0) + '/' + (ru?.phrases?.total || 0) + ' phrases.');
-  });
-  if (missing.length) throw new Error('Some upstream translations are still absent from GDNG:\n' + missing.join('\n'));
-  console.log('VERIFIED: all upstream file/language pairs with translations are present in GDNG.');
-  console.log('New imports remain unapproved. Existing destination translations were not re-imported.');
+  console.log('VERIFIED: all matched upstream translations missing before each import are now present in GDNG.');
+  console.log('Unmatched source identities were not imported; imported translations remain unapproved.');
+  console.log('Existing target translations and their approval state were preserved.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
