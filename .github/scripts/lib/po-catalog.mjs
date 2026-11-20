@@ -275,7 +275,7 @@ function hasMeaningfulTranslation(entry) {
 
 function getPluralFormCount(header) {
   const headerText = header?.translations?.get(0) || '';
-  const match = String(headerText).match(/\\bPlural-Forms:\\s*nplurals\\s*=\\s*(\\d+)/i);
+  const match = String(headerText).match(/\bPlural-Forms:\s*nplurals\s*=\s*(\d+)/i);
   return match ? Number(match[1]) : 0;
 }
 

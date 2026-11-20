@@ -37,24 +37,24 @@ test('detects a plural form omitted entirely from a catalog entry', () => {
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\n"',
     '',
     'msgid "item"',
     'msgid_plural "items"',
     'msgstr[0] "предмет"',
     'msgstr[1] "предметы"',
-  ].join('\\n');
+  ].join('\n');
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\n"',
     '',
     'msgid "item"',
     'msgid_plural "items"',
     'msgstr[0] ""',
     'msgstr[1] ""',
     'msgstr[2] ""',
-  ].join('\\n');
+  ].join('\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(result.sourcePartiallyTranslated, 1);
