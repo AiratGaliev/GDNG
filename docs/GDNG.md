@@ -31,7 +31,7 @@ GDNG uses the private Crowdin project as the translation editing workspace. Deve
 
 Source catalogs are extracted from `dev` and uploaded to Crowdin automatically after relevant source changes. A daily localization workflow exports and validates Crowdin translations, compiles the editor catalogs, synchronizes upstream extension translation bundles, and commits the generated files directly to `dev`. It does not open localization pull requests. All localization commits then move through the regular `dev → test → main` promotion process.
 
-The sync requires the repository secret `GDNG_LOCALIZATION_SYNC_TOKEN` and a matching bypass actor in the `protect-dev` ruleset. The token must be scoped to the GDNG repository with contents write access only. No bypass is granted on `test` or `main`.
+The sync requires a dedicated GitHub App installed on the GDNG repository with `Contents: read/write`. Store its Client ID in repository variable `GDNG_LOCALIZATION_APP_CLIENT_ID` and its private key in secret `GDNG_LOCALIZATION_APP_PRIVATE_KEY`. Add the App as an `Always allow` bypass actor in `protect-dev` only; do not add a bypass to `test` or `main`.
 
 ## Local checks
 
