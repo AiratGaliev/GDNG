@@ -80,7 +80,19 @@ export function buildMigrationTasks(catalogs, languages, sourceProgressRows) {
           '/' + catalog.name + '; refusing to skip an unverified language.'
         );
       }
-      const translated = Number(progress.phrases?.translated);
+      const rawTranslated = progress.phrases?.translated;
+      const translatedText = typeof rawTranslated === 'string' ? rawTranslated.trim() : null;
+      if (
+        rawTranslated === undefined ||
+        rawTranslated === null ||
+        (typeof rawTranslated !== 'number' && !(translatedText && /^\\d+$/.test(translatedText)))
+      ) {
+        throw new Error(
+          'Crowdin returned a missing or non-numeric translated phrase count for ' +
+          language.sourceLanguageId + '/' + catalog.name + '.'
+        );
+      }
+      const translated = Number(rawTranslated);
       if (!Number.isSafeInteger(translated) || translated < 0) {
         throw new Error(
           'Crowdin returned an invalid translated phrase count for ' +

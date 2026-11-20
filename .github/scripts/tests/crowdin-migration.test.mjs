@@ -118,4 +118,17 @@ test('fails closed on duplicate or invalid upstream progress rows', () => {
     ]),
     /invalid translated phrase count/
   );
+  assert.throws(
+    () => buildMigrationTasks(catalogs, languages, [
+      [
+        { languageId: 'fr', phrases: { translated: null } },
+        { languageId: 'sw-KE', phrases: { translated: 0 } },
+      ],
+      [
+        { languageId: 'fr', phrases: { translated: 0 } },
+        { languageId: 'sw-KE', phrases: { translated: 0 } },
+      ],
+    ]),
+    /missing or non-numeric translated phrase count/
+  );
 });
