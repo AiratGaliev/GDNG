@@ -1,0 +1,76 @@
+name: Seed GDNG Crowdin from upstream GDevelop
+
+on:
+  workflow_call:
+    secrets:
+      CROWDIN_PERSONAL_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  seed-gdng-crowdin:
+    name: One-time GDevelop to GDNG seed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    concurrency:
+      # Both standard translation workflows call this reusable workflow on main.
+      # Serialize them so only one run performs the seed import.
+      group: gdng-upstream-crowdin-seed-v1
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+
+      - name: Test Crowdin API helpers
+        run: node --test .github/scripts/tests/*.test.mjs
+
+      - name: Check one-time seed completion marker
+        id: marker
+        shell: bash
+        env:
+          SEED_MARKER_TAG: gdng-crowdin-seed-v1-complete
+        run: |
+          set -euo pipefail
+          marker_refs="$RUNNER_TEMP/crowdin-seed-marker-refs"
+          git ls-remote --tags origin "refs/tags/${SEED_MARKER_TAG}" > "$marker_refs"
+
+          if [[ -s "$marker_refs" ]]; then
+            echo "completed=true" >> "$GITHUB_OUTPUT"
+            echo "The one-time GDevelop to GDNG seed is already complete (${SEED_MARKER_TAG})."
+          else
+            echo "completed=false" >> "$GITHUB_OUTPUT"
+            echo "No completion marker found; the automatic seed migration will run."
+          fi
+
+      - name: Import missing translations from GDevelop into GDNG
+        if: steps.marker.outputs.completed != 'true'
+        env:
+          SOURCE_PROJECT_ID: "79367"
+          TARGET_PROJECT_ID: "948159"
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_IMPORT_CONCURRENCY: "4"
+          DRY_RUN: "false"
+        run: node .github/scripts/migrate-gdevelop-translations.mjs
+
+      - name: Record successful one-time seed
+        if: steps.marker.outputs.completed != 'true'
+        shell: bash
+        env:
+          SEED_MARKER_TAG: gdng-crowdin-seed-v1-complete
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$SEED_MARKER_TAG" "$GITHUB_SHA" \
+            -m "GDNG Crowdin seed from upstream GDevelop completed and verified"
+          git push origin "refs/tags/$SEED_MARKER_TAG"
+
+      - name: Confirm seed completion
+        run: echo "GDNG Crowdin seed is complete; normal translation workflows may proceed."

@@ -1,78 +1,79 @@
-# GitHub Action to update translations by downloading them from Crowdin,
-# and open a Pull Request with the changes.
-
+# Download translations from Crowdin and open a Pull Request with compiled catalogs.
 name: Update translations
 on:
-  # Execute only on main
   push:
     branches:
       - main
     tags-ignore:
-      - "**" # Don't run on new tags
-  # Allows to run this workflow manually from the Actions tab.
+      - "**"
   workflow_dispatch:
-
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: update-crowdin-translations
+  cancel-in-progress: false
 jobs:
+  ensure-crowdin-seed:
+    # The migration is only allowed from the production branch.
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/sync-upstream-translations.yml
+    permissions:
+      contents: write
+    secrets:
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+
   update-translations:
+    needs: ensure-crowdin-seed
+    # Manual dispatch from a non-main branch keeps the existing behavior; main must pass the seed first.
+    if: ${{ always() && (needs.ensure-crowdin-seed.result == 'success' || needs.ensure-crowdin-seed.result == 'skipped') }}
     runs-on: ubuntu-latest
+    env:
+      CROWDIN_PROJECT_ID: "948159"
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24.13.0
           cache: "npm"
           cache-dependency-path: "newIDE/app/package-lock.json"
-
       - name: Install gettext
-        run: sudo apt update && sudo apt install gettext -y
-
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gettext
       - name: Install newIDE dependencies
-        run: npm install
+        run: npm ci
         working-directory: newIDE/app
-
-      # We need to extract translations first to make sure all the source strings
-      # are included in the English catalogs. Otherwise, missing source strings
-      # with parameters (like "My name is {0}.") would be shown as-is when
-      # the app is built (but not in development - unclear why, LinguiJS issue?).
+      - name: Test Crowdin API helpers
+        run: node --test .github/scripts/tests/*.test.mjs
+      # This audit uses GET requests only and reports upstream drift without changing GDevelop or GDNG.
+      - name: Audit GDevelop and GDNG Crowdin parity (read-only)
+        run: node .github/scripts/audit-crowdin-parity.mjs
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+      # Extract source catalogs before exports, as required by the existing Lingui pipeline.
       - name: Extract translations
         run: npm run extract-all-translations
         working-directory: newIDE/app
-
-      # (Build and) download the most recent translations (PO files) from Crowdin.
-      - name: Install Crowdin CLI
-        run: npm i -g @crowdin/cli
-
-      - name: Download new translations from Crowdin
-        run: crowdin download
+      # File-based exports avoid the project-build permission required by crowdin download.
+      - name: Download translations through Crowdin Export API
+        run: node .github/scripts/download-crowdin-translations.mjs
         env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-
-      # Seems like the three letters code is not handled properly by LinguiJS?
-      # Do without this language while we find a solution.
-      - name: Remove catalogs not handled properly by LinguiJS compile command.
+      # Lingui does not correctly compile the three-letter Nigerian Pidgin locale.
+      - name: Remove catalogs not handled properly by Lingui
         run: rm -rf newIDE/app/src/locales/pcm_NG/
-
-      - name: Compile translations into .js files that are read by LinguiJS
+      - name: Compile translations
         run: npm run compile-translations
         working-directory: newIDE/app
-
-      # Safety check: if the English catalog is missing (it's re-created by
-      # compile-translations after being removed by extract-all-translations),
-      # English strings with parameters would be displayed with raw
-      # placeholders (like "{name}") in production builds. Fail instead of
-      # opening a Pull Request that would delete it.
-      - name: Verify that the English catalog was compiled
+      - name: Verify English catalog
         run: test -f newIDE/app/src/locales/en/messages.js
-
       - name: Create a Pull Request with the changes
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           commit-message: Update translations [skip ci]
           branch: chore/update-translations
           delete-branch: true
           title: "[Auto PR] Update translations"
           body: |
-            This updates the translations by downloading them from Crowdin and compiling them for usage by the app.
+            This updates the translations by exporting the latest PO catalogs from the GDNG Crowdin project through the Crowdin API and compiling them for usage by the app.
 
-            Please double check the values in `newIDE/app/src/locales/LocalesMetadata.js` to ensure the changes are sensible.
+            Please double check the values in newIDE/app/src/locales/LocalesMetadata.js to ensure the changes are sensible.
