@@ -1,69 +1,69 @@
-# GitHub Action to extract translations and (later) upload them to Crowdin.
-
-name: Extract translations
+# Extract source strings from dev and upload them to the GDNG Crowdin project.
+# Translated catalogs are never edited or uploaded from a developer's working tree.
+name: Upload dev sources to Crowdin
 on:
-  # Execute for all commits (to ensure translations extraction works)
   push:
     branches:
-      - "**"
-    tags-ignore:
-      - "**" # Don't run on new tags
-  # Allows to run this workflow manually from the Actions tab.
+      - dev
+    paths:
+      - "Core/**"
+      - "GDJS/**"
+      - "Extensions/**"
+      - "newIDE/app/src/**"
+      - "!newIDE/app/src/locales/**"
+      - "newIDE/app/scripts/**"
+      - "newIDE/app/package.json"
+      - "newIDE/app/package-lock.json"
+      - "scripts/ExtractTranslations.*"
+      - "crowdin.yml"
+      - ".github/scripts/**"
+      - ".github/workflows/extract-translations.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  ensure-crowdin-seed:
-    # The migration is only allowed from the production branch.
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/sync-upstream-translations.yml
-    permissions:
-      contents: write
-    secrets:
-      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-
-  extract-translations:
-    needs: ensure-crowdin-seed
-    # Feature-branch extraction remains unchanged; on main, do not proceed if the seed failed.
-    if: ${{ always() && (needs.ensure-crowdin-seed.result == 'success' || needs.ensure-crowdin-seed.result == 'skipped') }}
-    runs-on: ubuntu-latest
+  extract-and-upload:
+    # Manual runs must explicitly select dev; topic branches never upload strings.
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       CROWDIN_PROJECT_ID: "948159"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Check out dev
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
-          cache: "npm"
-          cache-dependency-path: "newIDE/app/package-lock.json"
+          cache: npm
+          cache-dependency-path: newIDE/app/package-lock.json
 
       - name: Install gettext
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gettext
 
-      - name: Install newIDE dependencies
+      - name: Install IDE dependencies
+        working-directory: newIDE/app
         run: npm ci
-        working-directory: newIDE/app
 
-      - name: Extract translations
+      - name: Extract source catalogs
+        working-directory: newIDE/app
         run: npm run extract-all-translations
-        working-directory: newIDE/app
 
-      # Never upload source catalogs until the destination is proven to be GDNG (948159).
       - name: Verify Crowdin upload target
-        if: github.ref == 'refs/heads/main'
         env:
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
 
-      # Only upload on Crowdin for the main branch
       - name: Install Crowdin CLI
-        if: github.ref == 'refs/heads/main'
         run: npm install --global @crowdin/cli@5.6.0
 
-      - name: Upload translations to Crowdin
+      - name: Upload source catalogs to GDNG Crowdin
         run: crowdin upload sources
-        if: github.ref == 'refs/heads/main'
         env:
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
