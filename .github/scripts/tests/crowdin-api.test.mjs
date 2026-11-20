@@ -219,6 +219,43 @@ test('matches source entries by gettext context, msgid and plural identity', () 
 });
 
 
+test('reports conflicting existing destination translations without overwriting them', () => {
+  const sourcePo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgid "Open"',
+    'msgstr "Открыть"',
+    '',
+    'msgid "Save"',
+    'msgstr "Сохранить"',
+    '',
+    'msgid "Close"',
+    'msgstr "Закрыть"',
+  ].join('\n');
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgid "Open"',
+    'msgstr "Открыть вручную"',
+    '',
+    'msgid "Save"',
+    'msgstr "Сохранить"',
+    '',
+    'msgid "Close"',
+    'msgstr ""',
+  ].join('\n');
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.alreadyTranslated, 2);
+  assert.equal(result.conflictingEntries, 1);
+  assert.equal(result.deltaEntries, 1);
+  assert.match(result.po, /msgid "Close"/);
+  assert.doesNotMatch(result.po, /msgid "Open"/);
+  assert.doesNotMatch(result.po, /msgid "Save"/);
+});
+
 test('preserves partially translated plural entries and reports them separately', () => {
   const sourcePo = [
     'msgid ""',

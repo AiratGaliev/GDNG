@@ -325,6 +325,17 @@ export function findMissingExpectedTranslationsPo(expectedPo, destinationPo) {
   return missing;
 }
 
+function hasConflictingTranslation(sourceEntry, destinationEntry) {
+  for (const [pluralIndex, sourceTranslation] of sourceEntry.translations) {
+    if (!sourceTranslation || sourceTranslation === sourceTextForTranslation(sourceEntry, pluralIndex)) {
+      continue;
+    }
+    const destinationTranslation = destinationEntry.translations.get(pluralIndex);
+    if (destinationTranslation && destinationTranslation !== sourceTranslation) return true;
+  }
+  return false;
+}
+
 function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
   if (sourceEntry.msgidPlural === undefined) return false;
 
@@ -363,6 +374,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
   let alreadyTranslated = 0;
   let partiallyTranslated = 0;
   let sourcePartiallyTranslated = 0;
+  let conflictingEntries = 0;
   let unmatched = 0;
 
   for (const entry of source.entries) {
@@ -390,6 +402,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
         partiallyTranslated += 1;
       } else {
         alreadyTranslated += 1;
+        if (hasConflictingTranslation(entry, destinationEntry)) conflictingEntries += 1;
       }
       continue;
     }
@@ -414,6 +427,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
     alreadyTranslated,
     partiallyTranslated,
     sourcePartiallyTranslated,
+    conflictingEntries,
     unmatched,
     deltaEntries: deltaEntries.length,
   };

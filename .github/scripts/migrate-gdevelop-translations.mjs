@@ -197,6 +197,7 @@ function logMergePlan(label, delta, mode) {
     ', already present=' + delta.alreadyTranslated +
     ', partially translated source plurals=' + delta.sourcePartiallyTranslated +
     ', partially translated destination plurals=' + delta.partiallyTranslated +
+    ', conflicting existing entries preserved=' + delta.conflictingEntries +
     ', unmatched source identities=' + delta.unmatched +
     ', source-equal=' + delta.sourceEqualsSource +
     ', missing translations=' + delta.deltaEntries + '.'
