@@ -340,14 +340,19 @@ function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
   if (sourceEntry.msgidPlural === undefined) return false;
 
   const requiredForms = [...sourceEntry.translations]
-    .filter(([, translation]) => translation.length > 0)
+    .filter(([pluralIndex, translation]) =>
+      translation.length > 0 && translation !== sourceTextForTranslation(sourceEntry, pluralIndex)
+    )
     .map(([pluralIndex]) => pluralIndex);
   if (requiredForms.length < 2) return false;
 
   const presentForms = new Set(
-    [...destinationEntry.translations]
-      .filter(([, translation]) => translation.length > 0)
-      .map(([pluralIndex]) => pluralIndex)
+    requiredForms.filter(pluralIndex => {
+      const translation = destinationEntry.translations.get(pluralIndex);
+      return Boolean(
+        translation && translation !== sourceTextForTranslation(sourceEntry, pluralIndex)
+      );
+    })
   );
 
   const presentCount = requiredForms.filter(index => presentForms.has(index)).length;
@@ -357,7 +362,8 @@ function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
 /**
  * Builds a valid PO delta from translated upstream entries that:
  *  - have an exact matching destination source identity;
- *  - do not already have any destination translation.
+ *  - do not already have a meaningful destination translation (a non-empty msgstr
+ *    identical to its msgid is treated as untranslated).
  *
  * Existing destination translations (approved or not) are always preserved.
  * Unmatched source identities are reported but never imported as new strings.
@@ -397,7 +403,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
     }
 
     matched += 1;
-    if (hasAnyTranslation(destinationEntry)) {
+    if (hasMeaningfulTranslation(destinationEntry)) {
       if (hasPartiallyTranslatedPlural(entry, destinationEntry)) {
         partiallyTranslated += 1;
       } else {
