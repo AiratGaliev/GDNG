@@ -203,7 +203,7 @@ function logMergePlan(label, delta, mode) {
     ', missing translations=' + delta.deltaEntries + '.'
   );
 }
-async function importPair(api, task) {
+export async function importPair(api, task) {
   const { label, delta } = await buildMergePlan(api, task);
   if (delta.deltaEntries === 0) {
     console.log('No Crowdin import required for ' + label + '.');
