@@ -159,6 +159,9 @@ test('matches source entries by gettext context, msgid and plural identity', () 
     'msgid "Open"',
     'msgstr "Открыть"',
     '',
+    'msgid "Draft"',
+    'msgstr "Черновик"',
+    '',
     'msgid "Save"',
     'msgstr "Сохранить"',
     '',
@@ -185,6 +188,9 @@ test('matches source entries by gettext context, msgid and plural identity', () 
     'msgid "Open"',
     'msgstr "Открыть вручную"',
     '',
+    'msgid "Draft"',
+    'msgstr "Существующий проверенный перевод"',
+    '',
     'msgid "Save"',
     'msgstr ""',
     '',
@@ -198,30 +204,41 @@ test('matches source entries by gettext context, msgid and plural identity', () 
   ].join('\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
-  assert.equal(result.sourceTranslated, 4);
+  assert.equal(result.sourceTranslated, 5);
   assert.equal(result.sourceEqualsSource, 1);
-  assert.equal(result.matched, 3);
-  assert.equal(result.alreadyTranslated, 1);
+  assert.equal(result.matched, 4);
+  assert.equal(result.alreadyTranslated, 2);
   assert.equal(result.unmatched, 1);
   assert.equal(result.deltaEntries, 2);
   assert.match(result.po, /msgid "Save"/);
   assert.match(result.po, /msgid "item"/);
   assert.doesNotMatch(result.po, /msgid "Open"/);
+  assert.doesNotMatch(result.po, /msgid "Draft"/);
   assert.doesNotMatch(result.po, /msgid "Unmatched"/);
   assert.equal(countNonEmptyTranslations(result.po), 2);
 });
 
-test('decodes gettext octal escapes and multiline source identities before matching', () => {
+test('decodes gettext octal escapes and joins multiline source/context strings before matching', () => {
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
     '',
+    'msgctxt "toolbar "',
+    '"menu"',
+    'msgid "Open "',
+    '"file"',
+    'msgstr "Открыть файл"',
+    '',
     'msgctxt "ellipsis"',
-    'msgid "\\342\\200\\246"',
-    'msgstr "…" ',
+    'msgid "\342\200\246"',
+    'msgstr "многоточие"',
   ].join('\n');
   const destinationPo = [
     'msgid ""',
+    'msgstr ""',
+    '',
+    'msgctxt "toolbar menu"',
+    'msgid "Open file"',
     'msgstr ""',
     '',
     'msgctxt "ellipsis"',
@@ -230,10 +247,10 @@ test('decodes gettext octal escapes and multiline source identities before match
   ].join('\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
-  assert.equal(result.deltaEntries, 1);
-  assert.match(result.po, /msgstr "…"/);
+  assert.equal(result.deltaEntries, 2);
+  assert.match(result.po, /msgstr "Открыть файл"/);
+  assert.match(result.po, /msgstr "многоточие"/);
 });
-
 test('ignores obsolete PO entries and preserves the upstream header in a delta', () => {
   const sourcePo = [
     '# upstream header comment',
