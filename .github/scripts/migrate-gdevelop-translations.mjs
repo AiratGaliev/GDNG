@@ -29,10 +29,25 @@ function findFile(files, name, project) {
   return matches[0];
 }
 export function mapLanguages(source, target) {
-  const sourceIds = new Set(source.targetLanguageIds || []);
+  const sourceIdsList = source?.targetLanguageIds;
+  const targetIdsList = target?.targetLanguageIds;
+  if (!Array.isArray(sourceIdsList) || sourceIdsList.length === 0) {
+    throw new Error('GDevelop project returned no target languages; refusing to complete an empty seed.');
+  }
+  if (!Array.isArray(targetIdsList) || targetIdsList.length === 0) {
+    throw new Error('GDNG project returned no target languages; refusing to complete an empty seed.');
+  }
+  if (new Set(sourceIdsList).size !== sourceIdsList.length) {
+    throw new Error('GDevelop project returned duplicate target language identifiers.');
+  }
+  if (new Set(targetIdsList).size !== targetIdsList.length) {
+    throw new Error('GDNG project returned duplicate target language identifiers.');
+  }
+
+  const sourceIds = new Set(sourceIdsList);
   const sourceLanguages = source.targetLanguages || [];
   const mappedSourceIds = new Set();
-  return (target.targetLanguageIds || []).map(languageId => {
+  return targetIdsList.map(languageId => {
     const locale = target.languageMapping?.[languageId]?.locale_with_underscore;
     const sourceLanguageId = sourceIds.has(languageId)
       ? languageId

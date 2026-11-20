@@ -40,6 +40,25 @@ test('maps an upstream language dialect to the GDNG language identifier', () => 
   ]);
 });
 
+test('rejects missing, empty or duplicate project language lists', () => {
+  assert.throws(
+    () => mapLanguages({ targetLanguageIds: [], targetLanguages: [] }, target),
+    /GDevelop project returned no target languages/
+  );
+  assert.throws(
+    () => mapLanguages(source, { targetLanguageIds: [], languageMapping: {} }),
+    /GDNG project returned no target languages/
+  );
+  assert.throws(
+    () => mapLanguages({ ...source, targetLanguageIds: ['fr', 'fr'] }, target),
+    /GDevelop project returned duplicate/
+  );
+  assert.throws(
+    () => mapLanguages(source, { ...target, targetLanguageIds: ['fr', 'fr'] }),
+    /GDNG project returned duplicate/
+  );
+});
+
 test('rejects a GDNG locale without an exact or dialect upstream mapping', () => {
   assert.throws(() => mapLanguages(
     {
