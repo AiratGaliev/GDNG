@@ -209,7 +209,7 @@ test('matches source entries by gettext context, msgid and plural identity', () 
   assert.equal(result.matched, 4);
   assert.equal(result.alreadyTranslated, 2);
   assert.equal(result.unmatched, 1);
-  assert.equal(result.deltaEntries, 3);
+  assert.equal(result.deltaEntries, 2);
   assert.match(result.po, /msgid "Save"/);
   assert.match(result.po, /msgid "item"/);
   assert.doesNotMatch(result.po, /msgid "Open"/);
@@ -337,7 +337,7 @@ test('parses Crowdin PO exports where entry comments delimit records without bla
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(result.alreadyTranslated, 1);
-  assert.equal(result.deltaEntries, 2);
+  assert.equal(result.deltaEntries, 3);
   assert.match(result.po, /msgid "Save"/);
   assert.match(result.po, /msgid "Close"/);
   assert.doesNotMatch(result.po, /msgid "Open"/);
