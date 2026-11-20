@@ -17,9 +17,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream r
 
 - `lib/crowdin-api.mjs` — shared authenticated API client, safe retries for GET and explicit 429 write rejections, storage upload, import-report helpers and a bounded worker pool.
 - `lib/crowdin-projects.mjs` — pinned GDevelop (`79367`, read-only) and GDNG (`948159`, write destination) identities plus fail-closed project guards.
-- `lib/crowdin-parity.mjs` — pure language, catalog and translation-progress comparison helpers.
-- `assert-gdng-crowdin-project.mjs` — read-only preflight used before the Crowdin CLI source upload.
-- `audit-crowdin-parity.mjs` — read-only upstream/GDNG parity report used by the regular translation update workflow.
+- `audit-crowdin-parity.mjs` — read-only upstream/GDNG parity audit, pure language/catalog/progress comparison helpers, and the `--assert-upload-target` preflight used before the Crowdin CLI source upload.
 - `lib/po-catalog.mjs` — strict gettext PO parser and phrase-level delta builder. Identity is the exact tuple of context, singular source text and plural source text. Duplicate identities or malformed PO syntax fail closed.
 - `migrate-gdevelop-translations.mjs` — manual upstream reconciler (source project `79367`, target project `948159`). It imports only missing translations for matching destination source entries.
 - `download-crowdin-translations.mjs` — exports complete PO catalogs from GDNG project `948159` to the repository locale tree; it rejects a wrong project ID and missing per-file progress before installing any files.
