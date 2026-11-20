@@ -22,7 +22,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream r
 
 ## Manual upstream reconciliation
 
-The **Sync upstream GDevelop translations** workflow is manually dispatched. Set `dry_run=true` to list the source-non-empty file/language pairs that will be compared without changing Crowdin. Run without dry-run only when intentionally reconciling upstream translations.
+The **Sync upstream GDevelop translations** workflow is manually dispatched. Set `dry_run=true` to export both catalogs and calculate the exact phrase-level delta for every source-non-empty file/language pair without creating storage objects or importing translations. Run without dry-run only when intentionally reconciling upstream translations.
 
 For each file/language pair, the importer:
 
