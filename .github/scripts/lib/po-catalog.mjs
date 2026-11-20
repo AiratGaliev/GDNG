@@ -104,7 +104,7 @@ function parsePoEntry(block, blockIndex) {
 
   const assign = (field, value, pluralIndex) => {
     if (field === 'msgctxt' || field === 'msgid' || field === 'msgid_plural') {
-      const property = field === 'msgid_plural' ? 'msgidPlural' : field;
+      const property = { msgctxt: 'context', msgid: 'msgid', msgid_plural: 'msgidPlural' }[field];
       if (entry[property] !== undefined) {
         throw new Error('Duplicate ' + field + ' directive in PO block ' + (blockIndex + 1) + '.');
       }
