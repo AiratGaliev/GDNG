@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { countNonEmptyTranslations, countPoEntries, createCrowdinApi, getImportReportStats, mapConcurrent } from '../lib/crowdin-api.mjs';
+import { buildMissingTranslationsPo, parsePoCatalog } from '../lib/po-catalog.mjs';
 
 test('counts translated singular and plural msgstr entries, including multiline values', () => {
   const po = [
@@ -144,4 +145,143 @@ test('reads per-language and per-file import statistics from Crowdin', () => {
     words: 45,
     skipped: { translation_eq_source: 2, hidden_strings: 0 },
   });
+});
+
+
+test('matches source entries by gettext context, msgid and plural identity', () => {
+  const sourcePo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Content-Type: text/plain; charset=UTF-8\\n"',
+    '',
+    '#: toolbar/open',
+    'msgctxt "toolbar"',
+    'msgid "Open"',
+    'msgstr "Открыть"',
+    '',
+    'msgid "Save"',
+    'msgstr "Сохранить"',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] "предмет"',
+    'msgstr[1] "предметы"',
+    '',
+    'msgid "Unmatched"',
+    'msgstr "Нет пары"',
+    '',
+    'msgid "URL"',
+    'msgstr "URL"',
+  ].join('\n');
+
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Content-Type: text/plain; charset=UTF-8\\n"',
+    '',
+    '#, fuzzy',
+    '#: toolbar/open',
+    'msgctxt "toolbar"',
+    'msgid "Open"',
+    'msgstr "Открыть вручную"',
+    '',
+    'msgid "Save"',
+    'msgstr ""',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] ""',
+    'msgstr[1] ""',
+    '',
+    'msgid "URL"',
+    'msgstr "URL"',
+  ].join('\n');
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.sourceTranslated, 4);
+  assert.equal(result.sourceEqualsSource, 1);
+  assert.equal(result.matched, 3);
+  assert.equal(result.alreadyTranslated, 1);
+  assert.equal(result.unmatched, 1);
+  assert.equal(result.deltaEntries, 2);
+  assert.match(result.po, /msgid "Save"/);
+  assert.match(result.po, /msgid "item"/);
+  assert.doesNotMatch(result.po, /msgid "Open"/);
+  assert.doesNotMatch(result.po, /msgid "Unmatched"/);
+  assert.equal(countNonEmptyTranslations(result.po), 2);
+});
+
+test('decodes gettext octal escapes and multiline source identities before matching', () => {
+  const sourcePo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgctxt "ellipsis"',
+    'msgid "\\342\\200\\246"',
+    'msgstr "…" ',
+  ].join('\n');
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgctxt "ellipsis"',
+    'msgid "…" ',
+    'msgstr ""',
+  ].join('\n');
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.deltaEntries, 1);
+  assert.match(result.po, /msgstr "…"/);
+});
+
+test('ignores obsolete PO entries and preserves the upstream header in a delta', () => {
+  const sourcePo = [
+    '# upstream header comment',
+    'msgid ""',
+    'msgstr ""',
+    '"Project-Id-Version: upstream\\n"',
+    '',
+    '#~ msgid "Removed"',
+    '#~ msgstr "Удалено"',
+    '',
+    'msgid "Added"',
+    'msgstr "Добавлено"',
+  ].join('\n');
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Project-Id-Version: destination\\n"',
+    '',
+    '#~ msgid "Removed"',
+    '#~ msgstr "Переведено"',
+    '',
+    'msgid "Added"',
+    'msgstr ""',
+  ].join('\n');
+
+  const parsed = parsePoCatalog(sourcePo);
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(parsed.entries.length, 1);
+  assert.match(result.po, /Project-Id-Version: upstream/);
+  assert.match(result.po, /msgid "Added"/);
+  assert.doesNotMatch(result.po, /msgid "Removed"/);
+});
+
+test('fails closed on duplicate gettext identities instead of choosing an arbitrary translation', () => {
+  const duplicateCatalog = [
+    'msgid "Same"',
+    'msgstr "Первый"',
+    '',
+    'msgid "Same"',
+    'msgstr "Второй"',
+  ].join('\n');
+
+  assert.throws(() => parsePoCatalog(duplicateCatalog), /duplicate source identity/i);
+});
+
+test('fails closed on malformed PO source directives', () => {
+  assert.throws(
+    () => parsePoCatalog(['msgid "Valid"', 'unexpected "directive"'].join('\n')),
+    /Unsupported PO syntax/
+  );
 });
