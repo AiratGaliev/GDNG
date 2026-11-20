@@ -77,7 +77,7 @@ Resolve conflicts deliberately. Do not accept either side of a conflict wholesal
 
 ## Branch and merge hygiene
 
-- Protected branches accept normal development changes through PRs. The dedicated localization token is the only exception on `dev`; it must not be configured as a bypass on `test` or `main`.
+- Protected branches accept normal development changes through PRs. The dedicated localization GitHub App is the only automation exception on `dev`; it must not be configured as a bypass on `test` or `main`.
 - Keep the PR history reviewable. Squash is suitable for a single logical change; promotion PRs should preserve clear candidate movement.
 - Delete a topic branch after its PR is merged unless it is needed for active follow-up work.
 - Start unrelated work from a fresh branch based on the latest `dev`.
