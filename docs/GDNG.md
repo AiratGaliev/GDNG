@@ -44,7 +44,7 @@ Do not resolve conflicts in CI configuration by accepting one side wholesale. Pr
 
 ## Manual release tag
 
-A manual tag is used only when deliberately publishing a selected GDNG release. Its format is `gdng-v<version>`, where `<version>` must exactly match the `version` field in `newIDE/electron-app/app/package.json`. For example, the current package version `5.6.287` requires the tag `gdng-v5.6.287`.
+A manual tag is used only when deliberately publishing a selected GDNG release. Its format is `gdng-v<version>`, where `<version>` must exactly match the `version` field in `newIDE/electron-app/app/package.json`. Store the SemVer version in `package.json` without a leading `v`; prerelease identifiers such as `-beta` are part of the version. For example, package version `5.6.288-beta` requires the tag `gdng-v5.6.288-beta`. The release publisher marks versions with a SemVer prerelease suffix as GitHub Pre-releases.
 
 Create the tag on the accepted release commit in `main`, after the release workflow is available there:
 

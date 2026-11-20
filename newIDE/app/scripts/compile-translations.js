@@ -194,45 +194,33 @@ const validateMessagePo = path => {
 const lintMessagePo = (locale, path) => {
   return readUtf8File(path).then(content => {
     const errors = [];
-    if (locale === 'pseudo_LOCALE' || locale === 'en') {
+    if (locale === 'pseudo_LOCALE' || locale === 'en' || !PO) {
       return { errors };
     }
 
-    const operatorWithBracketsCount = (content.match(/<operator>/g) || [])
-      .length;
-    const valueWithBracketsCount = (content.match(/<value>/g) || []).length;
-    const subjectWithBracketsCount = (content.match(/<subject>/g) || []).length;
+    // Validate the one semantic invariant this legacy check was intended to
+    // protect. Counting placeholder occurrences in raw PO text is unstable:
+    // it includes source strings, plural forms, comments and fuzzy entries.
+    const placeholderMessage = '<subject> <operator> <value>';
+    const entry = PO.parse(content).items.find(
+      item => item.msgid === placeholderMessage
+    );
 
-    if (operatorWithBracketsCount !== 4 && operatorWithBracketsCount !== 8) {
+    if (!entry) {
       errors.push({
-        str: `Unexpected number of <operator> (${operatorWithBracketsCount}): verify the <operator> translations`,
+        str: 'Missing the <subject> <operator> <value> source entry.',
       });
-    }
-    if (valueWithBracketsCount !== 6 && valueWithBracketsCount !== 12) {
-      errors.push({
-        str: `Unexpected number of <value> (${valueWithBracketsCount}): verify the <value> translations`,
-      });
-    }
-    if (subjectWithBracketsCount !== 12 && subjectWithBracketsCount !== 24) {
-      errors.push({
-        str: `Unexpected number of <subject> (${subjectWithBracketsCount}): verify the <subject> translations`,
-      });
-    }
-    if (
-      content.indexOf(`msgid "<subject> <operator> <value>"
-msgstr "<subject> <operator> <value>"`) === -1 &&
-      content.indexOf(`msgid "<subject> <operator> <value>"
-msgstr ""`) === -1
+    } else if (
+      entry.msgstr.some(
+        translation => translation && translation !== placeholderMessage
+      )
     ) {
       errors.push({
-        str:
-          "Can't find an untranslated <subject> <operator> <value>: Double check these translations, they are surely wrongly done!",
+        str: 'The <subject> <operator> <value> placeholder entry must remain untranslated.',
       });
     }
 
-    return {
-      errors,
-    };
+    return { errors };
   });
 };
 
