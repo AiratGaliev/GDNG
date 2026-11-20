@@ -51,4 +51,12 @@ jobs:
         run: test -s newIDE/app/src/locales/en/messages.js
 
       - name: Verify committed catalogs are reproducible
-        run: git diff --exit-code -- newIDE/app/src/locales/
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git status --porcelain --untracked-files=all -- newIDE/app/src/locales/)"
+          if [[ -n "$changed" ]]; then
+            echo "Committed locale artifacts do not reproduce from the tracked PO catalogs:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          fi
