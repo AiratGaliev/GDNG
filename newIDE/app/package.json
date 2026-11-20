@@ -119,7 +119,7 @@
     "dnd-core": "14.0.1"
   },
   "scripts": {
-    "postinstall": "patch-package && cd ../../GDJS && npm install && cd ../newIDE/app && npm run import-resources",
+    "postinstall": "patch-package && npm --prefix ../../GDJS ci && npm run import-resources",
     "import-resources": "npm run make-version-metadata && npm run import-zipped-external-editors && npm run build-theme-resources && npm run make-service-worker && cd scripts && node import-libGD.js && node import-GDJS-Runtime.js && node import-monaco-editor.js && node import-zipped-external-libs.js",
     "make-version-metadata": "cd scripts && node make-version-metadata.js",
     "make-service-worker": "cd scripts && node make-service-worker.js",
