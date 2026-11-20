@@ -21,7 +21,8 @@ jobs:
     uses: ./.github/workflows/sync-upstream-translations.yml
     permissions:
       contents: write
-    secrets: inherit
+    secrets:
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
   extract-translations:
     needs: ensure-crowdin-seed
