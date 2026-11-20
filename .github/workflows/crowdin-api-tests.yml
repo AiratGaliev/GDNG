@@ -18,6 +18,7 @@ on:
       - main
     paths:
       - ".github/scripts/**"
+      - ".github/workflows/crowdin-api-tests.yml"
       - ".github/workflows/sync-upstream-translations.yml"
       - ".github/workflows/update-translations.yml"
   workflow_dispatch:
