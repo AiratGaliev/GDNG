@@ -22,7 +22,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream r
 
 ## Manual upstream reconciliation
 
-The **Sync upstream GDevelop translations** workflow is manually dispatched. Set `dry_run=true` to export both catalogs and calculate the exact phrase-level delta for every source-non-empty file/language pair without creating storage objects or importing translations. Run without dry-run only when intentionally reconciling upstream translations.
+The **Sync upstream GDevelop translations** workflow runs in two modes. Every push to the dedicated `ops/import-gdevelop-translations-once-20261119` branch automatically performs a read-only preview (`DRY_RUN=true`); it exports both catalogs and calculates the exact phrase-level delta for every source-non-empty file/language pair without creating storage objects or importing translations. Manual `workflow_dispatch` runs also support `dry_run=true`; leave it false only when intentionally running the additive Crowdin import.
 
 For each file/language pair, the importer:
 
