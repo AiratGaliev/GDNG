@@ -23,23 +23,12 @@ jobs:
     env:
       CROWDIN_PROJECT_ID: "948159"
     steps:
-      - name: Require the dedicated dev-bypass token
-        shell: bash
-        env:
-          LOCALIZATION_SYNC_TOKEN: ${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$LOCALIZATION_SYNC_TOKEN" ]]; then
-            echo "GDNG_LOCALIZATION_SYNC_TOKEN is required. Configure a repository-scoped token whose identity is allowed to update dev." >&2
-            exit 1
-          fi
-
       - name: Check out the current dev branch
         uses: actions/checkout@v7
         with:
           ref: dev
-          token: ${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -142,6 +131,26 @@ jobs:
           git diff --cached --stat
           git commit -m "chore(i18n): sync localization catalogs"
 
+      # Create the narrowly-scoped installation token only after all exports,
+      # validation and compilation have completed. It is short-lived and revoked
+      # automatically at the end of this job.
+      - name: Create repository-scoped localization GitHub App token
+        uses: actions/create-github-app-token@v3
+        id: localization-token
+        with:
+          client-id: ${{ vars.GDNG_LOCALIZATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GDNG_LOCALIZATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: GDNG
+          permission-contents: write
+
+      - name: Rebase and push generated catalogs to dev
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.localization-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
           # Rebase on the latest dev head instead of force-pushing over concurrent work.
           git fetch --no-tags origin dev
           git rebase origin/dev
