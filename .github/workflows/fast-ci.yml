@@ -277,6 +277,18 @@ jobs:
         working-directory: GDJS/tests
         run: xvfb-run --auto-servernum npm run test:chromeHeadlessNoSandbox
 
+  localization-catalogs:
+    name: Validate compiled localization catalogs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Validate compiled localization catalogs
+        run: node scripts/validate-localization-catalogs.cjs
+
   changed-storybook-tests:
     name: Storybook visual tests affected by this PR
     runs-on: ubuntu-24.04
@@ -382,6 +394,7 @@ jobs:
       - core-sanitizers
       - ide-fast-checks
       - gdjs-fast-checks
+      - localization-catalogs
       - changed-storybook-tests
     if: always()
     runs-on: ubuntu-24.04
@@ -394,6 +407,7 @@ jobs:
           CORE_SANITIZERS_RESULT: ${{ needs.core-sanitizers.result }}
           IDE_FAST_CHECKS_RESULT: ${{ needs.ide-fast-checks.result }}
           GDJS_FAST_CHECKS_RESULT: ${{ needs.gdjs-fast-checks.result }}
+          LOCALIZATION_CATALOGS_RESULT: ${{ needs.localization-catalogs.result }}
           CHANGED_STORYBOOK_RESULT: ${{ needs.changed-storybook-tests.result }}
         run: |
           set -euo pipefail
@@ -403,6 +417,7 @@ jobs:
             "$CORE_SANITIZERS_RESULT" \
             "$IDE_FAST_CHECKS_RESULT" \
             "$GDJS_FAST_CHECKS_RESULT" \
+            "$LOCALIZATION_CATALOGS_RESULT" \
             "$CHANGED_STORYBOOK_RESULT"; do
             if [[ "$result" != "success" ]]; then
               echo "::error::A required Fast CI job finished with result: $result"
