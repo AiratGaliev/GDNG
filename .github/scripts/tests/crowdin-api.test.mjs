@@ -251,7 +251,7 @@ test('decodes gettext octal escapes and joins multiline source/context strings b
   assert.match(result.po, /msgstr "Открыть файл"/);
   assert.match(result.po, /msgstr "многоточие"/);
 });
-test('ignores obsolete PO entries and preserves the upstream header in a delta', () => {
+test('ignores obsolete PO entries and preserves destination Crowdin metadata in a delta', () => {
   const sourcePo = [
     '# upstream header comment',
     'msgid ""',
@@ -279,7 +279,8 @@ test('ignores obsolete PO entries and preserves the upstream header in a delta',
   const parsed = parsePoCatalog(sourcePo);
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(parsed.entries.length, 1);
-  assert.match(result.po, /Project-Id-Version: upstream/);
+  assert.match(result.po, /Project-Id-Version: destination/);
+  assert.doesNotMatch(result.po, /Project-Id-Version: upstream/);
   assert.match(result.po, /msgid "Added"/);
   assert.doesNotMatch(result.po, /msgid "Removed"/);
 });
