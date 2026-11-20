@@ -11,7 +11,7 @@ on:
         description: Calculate phrase-level missing translations without importing
         required: false
         type: boolean
-        default: false
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -33,7 +33,7 @@ jobs:
       - name: Import missing translations from GDevelop into GDNG
         env:
           SOURCE_PROJECT_ID: "79367"
-          TARGET_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          TARGET_PROJECT_ID: "948159"
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
           CROWDIN_IMPORT_CONCURRENCY: "4"
           DRY_RUN: ${{ github.event_name == 'push' && 'true' || github.event.inputs.dry_run || 'false' }}

@@ -1,8 +1,10 @@
 import { createCrowdinApi, getImportReportStats, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
 import { buildMissingTranslationsPo, parsePoCatalog } from './lib/po-catalog.mjs';
+import { CROWDIN_PROJECT_IDS, assertCrowdinProjectPair, assertProjectId } from './lib/crowdin-projects.mjs';
 
-const SOURCE_PROJECT_ID = Number(process.env.SOURCE_PROJECT_ID || 79367);
-const TARGET_PROJECT_ID = Number(process.env.TARGET_PROJECT_ID || 948159);
+// Project IDs are pinned: the upstream GDevelop project is read-only, and GDNG is the only write target.
+const SOURCE_PROJECT_ID = assertProjectId(process.env.SOURCE_PROJECT_ID, CROWDIN_PROJECT_IDS.gdevelop, 'SOURCE_PROJECT_ID');
+const TARGET_PROJECT_ID = assertProjectId(process.env.TARGET_PROJECT_ID, CROWDIN_PROJECT_IDS.gdng, 'TARGET_PROJECT_ID');
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const CONCURRENCY = Number(process.env.CROWDIN_IMPORT_CONCURRENCY || 4);
 const IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
@@ -12,9 +14,9 @@ const CATALOGS = [
 ];
 
 function findFile(files, name, project) {
-  const found = files.find(file => file.name === name);
-  if (!found) throw new Error('File ' + name + ' not found in ' + project + '.');
-  return found;
+  const matches = files.filter(file => file.name === name);
+  if (matches.length !== 1) throw new Error('Expected exactly one ' + name + ' file in ' + project.name + '; found ' + matches.length + '.');
+  return matches[0];
 }
 function mapLanguages(source, target) {
   const sourceIds = new Set(source.targetLanguageIds || []);
@@ -193,10 +195,13 @@ async function main() {
   const targetProject = targetProjectResponse.data;
   if (!sourceProject || !targetProject) throw new Error('Unable to read both Crowdin projects.');
 
+  // Validate both remote identities before any export job, Storage upload, or Import API operation.
+  assertCrowdinProjectPair(sourceProject, targetProject);
+
   const catalogs = CATALOGS.map(catalog => ({
     ...catalog,
-    sourceFile: findFile(unwrapList(sourceFilesResponse), catalog.name, sourceProject.name),
-    targetFile: findFile(unwrapList(targetFilesResponse), catalog.name, targetProject.name),
+    sourceFile: findFile(unwrapList(sourceFilesResponse), catalog.name, sourceProject),
+    targetFile: findFile(unwrapList(targetFilesResponse), catalog.name, targetProject),
   }));
   const languages = mapLanguages(sourceProject, targetProject);
   const sourceRows = await Promise.all(

@@ -11,19 +11,22 @@ on:
   # Allows to run this workflow manually from the Actions tab.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   extract-translations:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 16
+          node-version: 20
           cache: "npm"
           cache-dependency-path: "newIDE/app/package-lock.json"
 
       - name: Install gettext
-        run: sudo apt update && sudo apt install gettext -y
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gettext
 
       - name: Install newIDE dependencies
         run: npm ci
@@ -32,6 +35,14 @@ jobs:
       - name: Extract translations
         run: npm run extract-all-translations
         working-directory: newIDE/app
+
+      # Never upload source catalogs until the destination is proven to be GDNG (948159).
+      - name: Verify Crowdin upload target
+        if: github.ref == 'refs/heads/main'
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+        run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
 
       # Only upload on Crowdin for the main branch
       - name: Install Crowdin CLI

@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { countPoEntries, createCrowdinApi, mapConcurrent, unwrapList } from './lib/crowdin-api.mjs';
+import { CROWDIN_PROJECT_IDS, assertGdngProject, assertProjectId } from './lib/crowdin-projects.mjs';
 
-const PROJECT_ID = Number(process.env.CROWDIN_PROJECT_ID || 948159);
+const PROJECT_ID = assertProjectId(process.env.CROWDIN_PROJECT_ID, CROWDIN_PROJECT_IDS.gdng, 'CROWDIN_PROJECT_ID');
 const CONCURRENCY = Number(process.env.CROWDIN_EXPORT_CONCURRENCY || 6);
 const LOCALES_ROOT = path.resolve('newIDE/app/src/locales');
 const CATALOGS = [
@@ -10,9 +11,9 @@ const CATALOGS = [
   { name: 'gdcore-gdcpp-gdjs-extensions-messages.pot', output: 'gdcore-gdcpp-gdjs-extensions-messages.po' },
 ];
 function findFile(files, name) {
-  const file = files.find(item => item.name === name);
-  if (!file) throw new Error('Crowdin file not found: ' + name + '.');
-  return file;
+  const matches = files.filter(item => item.name === name);
+  if (matches.length !== 1) throw new Error('Expected exactly one Crowdin file named ' + name + '; found ' + matches.length + '.');
+  return matches[0];
 }
 function safeLocale(locale) {
   if (!/^[A-Za-z0-9_-]+$/.test(locale)) throw new Error('Unsafe locale directory: ' + locale);
@@ -34,9 +35,12 @@ async function exportPair(api, task, stagingRoot) {
   if (!response?.data?.url) throw new Error('No export URL for ' + task.languageId + '/' + task.catalog.output + '.');
   const po = await api.downloadText(response.data.url);
   if (!po.includes('msgid ""') || !po.includes('msgstr')) throw new Error('Invalid PO export for ' + task.languageId + '/' + task.catalog.output + '.');
-  const expected = Number(task.progress?.phrases?.total || 0);
+  const expected = Number(task.progress?.phrases?.total);
+  if (!Number.isSafeInteger(expected) || expected <= 0) {
+    throw new Error('Missing or invalid Crowdin phrase total for ' + task.languageId + '/' + task.catalog.output + '.');
+  }
   const actual = countPoEntries(po);
-  if (expected && actual < expected) {
+  if (actual < expected) {
     throw new Error('Incomplete PO export for ' + task.languageId + '/' + task.catalog.output +
       ': ' + actual + ' entries; expected at least ' + expected + '.');
   }
@@ -55,12 +59,12 @@ async function main() {
   if (!Number.isInteger(PROJECT_ID) || PROJECT_ID <= 0) throw new Error('CROWDIN_PROJECT_ID must be positive.');
   if (!Number.isInteger(CONCURRENCY) || CONCURRENCY < 1 || CONCURRENCY > 10) throw new Error('CROWDIN_EXPORT_CONCURRENCY must be between 1 and 10.');
   const api = createCrowdinApi();
-  const [projectResponse, filesResponse] = await Promise.all([
-    api.request('projects/' + PROJECT_ID),
-    api.request('projects/' + PROJECT_ID + '/files?limit=500'),
-  ]);
+  const projectResponse = await api.request('projects/' + PROJECT_ID);
   const project = projectResponse.data;
   if (!project) throw new Error('Could not read Crowdin project ' + PROJECT_ID + '.');
+  // Validate identity before requesting any Export API jobs.
+  assertGdngProject(project);
+  const filesResponse = await api.request('projects/' + PROJECT_ID + '/files?limit=500');
   const files = unwrapList(filesResponse);
   const catalogs = CATALOGS.map(catalog => ({ ...catalog, file: findFile(files, catalog.name) }));
   const progress = await Promise.all(catalogs.map(catalog => getProgress(api, catalog.file.id)));
@@ -70,10 +74,13 @@ async function main() {
   const tasks = languages.flatMap(languageId => {
     const locale = project.languageMapping?.[languageId]?.locale_with_underscore;
     if (!locale) throw new Error('No locale_with_underscore mapping for ' + languageId + '.');
-    return catalogs.map((catalog, index) => ({
-      languageId, locale, catalog, file: catalog.file,
-      progress: progressMaps[index].get(languageId),
-    }));
+    return catalogs.map((catalog, index) => {
+      const progressRow = progressMaps[index].get(languageId);
+      if (!progressRow || !Number.isSafeInteger(Number(progressRow.phrases?.total)) || Number(progressRow.phrases.total) <= 0) {
+        throw new Error('Missing or invalid Crowdin progress for ' + languageId + '/' + catalog.output + '.');
+      }
+      return { languageId, locale, catalog, file: catalog.file, progress: progressRow };
+    });
   });
 
   const stagingRoot = await mkdtemp(path.join(LOCALES_ROOT, '.crowdin-download-'));

@@ -30,6 +30,11 @@ jobs:
         working-directory: newIDE/app
       - name: Test Crowdin API helpers
         run: node --test .github/scripts/tests/*.test.mjs
+      # This audit uses GET requests only and reports upstream drift without changing GDevelop or GDNG.
+      - name: Audit GDevelop and GDNG Crowdin parity (read-only)
+        run: node .github/scripts/audit-crowdin-parity.mjs
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
       # Extract source catalogs before exports, as required by the existing Lingui pipeline.
       - name: Extract translations
         run: npm run extract-all-translations

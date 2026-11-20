@@ -11,6 +11,7 @@ on:
       - ".github/workflows/crowdin-api-tests.yml"
       - ".github/workflows/sync-upstream-translations.yml"
       - ".github/workflows/update-translations.yml"
+      - ".github/workflows/extract-translations.yml"
   push:
     branches:
       - dev
@@ -21,6 +22,7 @@ on:
       - ".github/workflows/crowdin-api-tests.yml"
       - ".github/workflows/sync-upstream-translations.yml"
       - ".github/workflows/update-translations.yml"
+      - ".github/workflows/extract-translations.yml"
   workflow_dispatch:
 
 permissions:
@@ -44,5 +46,6 @@ jobs:
         run: |
           node --check .github/scripts/migrate-gdevelop-translations.mjs
           node --check .github/scripts/download-crowdin-translations.mjs
+          node --check .github/scripts/audit-crowdin-parity.mjs
       - name: Run Crowdin API tests
         run: node --test .github/scripts/tests/*.test.mjs
