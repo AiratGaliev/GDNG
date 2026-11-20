@@ -357,10 +357,10 @@ function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
 /**
  * Builds a valid PO delta from translated upstream entries that:
  *  - have an exact matching destination source identity;
- *  - do not already have a meaningful destination translation (a non-empty msgstr
- *    identical to its msgid is treated as untranslated).
+ *  - have no non-empty destination msgstr forms.
  *
- * Existing destination translations (approved or not) are always preserved.
+ * Every explicit destination value is preserved, including source-equal msgstr
+ * choices and approved or unapproved translations.
  * Unmatched source identities are reported but never imported as new strings.
  */
 export function buildMissingTranslationsPo(sourcePo, destinationPo) {
