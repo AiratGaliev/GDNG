@@ -40,14 +40,14 @@ test('preserves a non-empty destination msgstr that repeats its source text', ()
     '',
     'msgid "Save"',
     'msgstr "Сохранить"',
-  ].join('\\n');
+  ].join('\n');
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
     '',
     'msgid "Save"',
     'msgstr "Save"',
-  ].join('\\n');
+  ].join('\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(result.alreadyTranslated, 1);
@@ -60,23 +60,23 @@ test('preserves source-equal plural forms and reports upstream differences', () 
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=2; plural=(n != 1);\\\\n"',
+    '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"',
     '',
     'msgid "file"',
     'msgid_plural "files"',
     'msgstr[0] "file"',
     'msgstr[1] "файлы"',
-  ].join('\\n');
+  ].join('\n');
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=2; plural=(n != 1);\\\\n"',
+    '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"',
     '',
     'msgid "file"',
     'msgid_plural "files"',
     'msgstr[0] "file"',
     'msgstr[1] "files"',
-  ].join('\\n');
+  ].join('\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(result.alreadyTranslated, 1);
