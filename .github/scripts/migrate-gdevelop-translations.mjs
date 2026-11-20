@@ -211,8 +211,8 @@ async function main() {
       return delta;
     });
     if (previewErrors.length) {
-      throw new Error(previewErrors.length + ' phrase merge preview(s) failed:\\n' +
-        previewErrors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\\n'));
+      throw new Error(previewErrors.length + ' phrase merge preview(s) failed:\n' +
+        previewErrors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\n'));
     }
     console.log('DRY RUN complete: exact phrase-level deltas calculated; no Crowdin storage or import writes were made.');
     return;
