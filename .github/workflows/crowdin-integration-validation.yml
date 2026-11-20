@@ -36,7 +36,6 @@ jobs:
     timeout-minutes: 45
     env:
       CROWDIN_PROJECT_ID: "948159"
-      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -78,16 +77,24 @@ jobs:
 
       # This is a no-write preview; real source upload remains exclusive to main.
       - name: Verify GDNG upload target
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
 
       - name: Dry-run Crowdin source upload
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: crowdin upload sources --dryrun
 
       - name: Audit GDevelop and GDNG parity (read-only)
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs
 
       # Download from GDNG through per-file Export API, then run the real Lingui compile path.
       - name: Download GDNG translations
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/download-crowdin-translations.mjs
 
       - name: Remove locale not supported by the Lingui compile pipeline
