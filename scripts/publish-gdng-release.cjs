@@ -12,6 +12,7 @@ const version = require(path.join(
   'newIDE/electron-app/app/package.json'
 )).version;
 const expectedTag = 'gdng-v' + version;
+const isPrerelease = /^\d+\.\d+\.\d+-/.test(version);
 const publisherMarker = '<!-- gdng-release-publisher:v1:AiratGaliev/GDNG -->';
 const tag =
   process.env.GDNG_RELEASE_TAG ||
@@ -388,7 +389,7 @@ async function main() {
       tag_name: tag,
       name: 'GDNG v' + version,
       draft: true,
-      prerelease: false,
+      prerelease: isPrerelease,
       body: [
         'Cross-platform GDNG desktop release built from commit ' + sourceCommit + '.',
         '',
@@ -419,7 +420,7 @@ async function main() {
   release = await githubRequest(
     'PATCH',
     '/repos/' + repository + '/releases/' + release.id,
-    { draft: false }
+    { draft: false, prerelease: isPrerelease }
   );
   console.log('Published ' + release.html_url);
 }
