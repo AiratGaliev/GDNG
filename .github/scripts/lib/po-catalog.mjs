@@ -203,7 +203,11 @@ function splitPoBlocks(po) {
       lines.length &&
       (
         (line.startsWith('#') && hasMsgstr) ||
-        (directive && ((hasMsgid && hasMsgstr) || hasObsolete))
+        (
+          directive &&
+          (directive[1] === 'msgctxt' || directive[1] === 'msgid') &&
+          ((hasMsgid && hasMsgstr) || hasObsolete)
+        )
       )
     );
 
