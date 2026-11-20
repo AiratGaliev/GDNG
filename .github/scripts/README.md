@@ -21,7 +21,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream r
 - `lib/po-catalog.mjs` — strict gettext PO parser and phrase-level delta builder. Identity is the exact tuple of context, singular source text and plural source text. Duplicate identities or malformed PO syntax fail closed.
 - `migrate-gdevelop-translations.mjs` — manual upstream reconciler (source project `79367`, target project `948159`). It imports only missing translations for matching destination source entries.
 - `download-crowdin-translations.mjs` — exports complete PO catalogs from GDNG project `948159` to the repository locale tree; it rejects a wrong project ID and missing per-file progress before installing any files.
-- `tests/crowdin-api.test.mjs` and the focused project/parity test files — dependency-free Node.js tests for project isolation, language aliases, catalog totals and API/PO behavior. — dependency-free Node.js tests for PO counting/parsing, delta generation, bounded concurrency and retry behaviour.
+- `tests/crowdin-api.test.mjs` and `tests/crowdin-isolation.test.mjs` — dependency-free Node.js tests for PO parsing, delta generation, bounded concurrency/retries, project isolation, locale aliases, phrase totals and approval metrics.
 
 ## Manual upstream reconciliation
 
