@@ -273,6 +273,24 @@ function hasMeaningfulTranslation(entry) {
   return false;
 }
 
+function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
+  if (sourceEntry.msgidPlural === undefined) return false;
+
+  const requiredForms = [...sourceEntry.translations]
+    .filter(([, translation]) => translation.length > 0)
+    .map(([pluralIndex]) => pluralIndex);
+  if (requiredForms.length < 2) return false;
+
+  const presentForms = new Set(
+    [...destinationEntry.translations]
+      .filter(([, translation]) => translation.length > 0)
+      .map(([pluralIndex]) => pluralIndex)
+  );
+
+  const presentCount = requiredForms.filter(index => presentForms.has(index)).length;
+  return presentCount > 0 && presentCount < requiredForms.length;
+}
+
 /**
  * Builds a valid PO delta from translated upstream entries that:
  *  - have an exact matching destination source identity;
@@ -290,6 +308,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
   let sourceEqualsSource = 0;
   let matched = 0;
   let alreadyTranslated = 0;
+  let partiallyTranslated = 0;
   let unmatched = 0;
 
   for (const entry of source.entries) {
@@ -309,7 +328,11 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
 
     matched += 1;
     if (hasAnyTranslation(destinationEntry)) {
-      alreadyTranslated += 1;
+      if (hasPartiallyTranslatedPlural(entry, destinationEntry)) {
+        partiallyTranslated += 1;
+      } else {
+        alreadyTranslated += 1;
+      }
       continue;
     }
 
@@ -331,6 +354,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
     destinationEntries: destination.entries.length,
     matched,
     alreadyTranslated,
+    partiallyTranslated,
     unmatched,
     deltaEntries: deltaEntries.length,
   };
