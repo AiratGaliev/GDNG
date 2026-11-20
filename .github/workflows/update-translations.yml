@@ -69,11 +69,17 @@ jobs:
       - name: Create a Pull Request with the changes
         uses: peter-evans/create-pull-request@v8.1.1
         with:
-          commit-message: Update translations [skip ci]
+          commit-message: Update translations
           branch: chore/update-translations
           delete-branch: true
+          add-paths: |
+            newIDE/app/src/locales/**
           title: "[Auto PR] Update translations"
           body: |
             This updates the translations by exporting the latest PO catalogs from the GDNG Crowdin project through the Crowdin API and compiling them for usage by the app.
 
             Please double check the values in newIDE/app/src/locales/LocalesMetadata.js to ensure the changes are sensible.
+
+            Generated translation catalogs only are included. Dependency lockfiles and unrelated generated files are intentionally excluded.
+
+            The workflow validates extraction, Crowdin exports, PO completeness, ICU syntax, Lingui compilation, and the English catalog before opening this PR.
