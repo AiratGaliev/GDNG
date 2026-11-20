@@ -7,8 +7,8 @@ test('counts translated singular and plural msgstr entries, including multiline 
     'msgid ""', 'msgstr ""', '"Content-Type: text/plain; charset=UTF-8\\n"', '',
     'msgid "one"', 'msgstr "un"', '',
     'msgid "two"', 'msgstr ""', '"deux"', '',
-    'msgid "three"', 'msgstr ""', '',
-    'msgid_plural "items"', 'msgstr[0] "article"', 'msgstr[1] "articles"',
+    'msgid "three"', 'msgid_plural "items"',
+    'msgstr[0] "article"', 'msgstr[1] "articles"',
   ].join('\n');
   assert.equal(countNonEmptyTranslations(po), 3);
 });
