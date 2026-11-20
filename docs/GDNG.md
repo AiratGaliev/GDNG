@@ -25,6 +25,14 @@ This policy affects local editor restrictions only. It does not grant cloud serv
 
 The policy has a focused test in `newIDE/app/src/Utils/LocalFeaturePolicy.spec.js`.
 
+## Localization
+
+GDNG uses the private Crowdin project as the translation editing workspace. Developers change source strings in code; translations are created and maintained in Crowdin rather than by editing locale files locally.
+
+Source catalogs are extracted from `dev` and uploaded to Crowdin automatically after relevant source changes. A daily localization workflow exports and validates Crowdin translations, compiles the editor catalogs, synchronizes upstream extension translation bundles, and commits the generated files directly to `dev`. It does not open localization pull requests. All localization commits then move through the regular `dev → test → main` promotion process. A lightweight push check validates the committed locale metadata and JavaScript catalog syntax; PO/POT validation and compilation run before the commit because those files are intentionally gitignored.
+
+The sync requires a dedicated GitHub App installed on the GDNG repository with `Contents: read/write`. Store its Client ID in repository variable `GDNG_LOCALIZATION_APP_CLIENT_ID` and its private key in secret `GDNG_LOCALIZATION_APP_PRIVATE_KEY`. Add the App as an `Always allow` bypass actor in `protect-dev` only; do not add a bypass to `test` or `main`.
+
 ## Local checks
 
 Use Node.js 24 and npm. Follow the [editor setup instructions](../newIDE/README.md), then run these GDNG-specific checks from the repository root:
