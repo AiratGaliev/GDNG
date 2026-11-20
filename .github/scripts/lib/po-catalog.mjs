@@ -30,6 +30,8 @@ function decodePoQuotedString(quoted) {
     const escaped = quoted[index];
     const simpleEscapes = {
       '"': 0x22,
+      "'": 0x27,
+      '?': 0x3f,
       '\\': 0x5c,
       a: 0x07,
       b: 0x08,
@@ -76,7 +78,10 @@ function decodePoQuotedString(quoted) {
       continue;
     }
 
-    throw new Error('Unsupported escape sequence in PO string literal: \\' + escaped);
+    // Retain producer-specific escapes instead of collapsing distinct source keys.
+    bytes.push(0x5c);
+    appendText(escaped);
+    index += 1;
   }
 
   return Buffer.from(bytes).toString('utf8');
@@ -172,13 +177,55 @@ function parsePoEntry(block, blockIndex) {
   return entry;
 }
 
+function splitPoBlocks(po) {
+  const blocks = [];
+  let lines = [];
+  let hasMsgid = false;
+  let hasMsgstr = false;
+  let hasObsolete = false;
+
+  const flush = () => {
+    if (lines.length) blocks.push(lines.join('\n'));
+    lines = [];
+    hasMsgid = false;
+    hasMsgstr = false;
+    hasObsolete = false;
+  };
+
+  for (const line of po.split(/\r?\n/)) {
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+
+    const directive = line.match(/^(msgctxt|msgid_plural|msgid|msgstr(?:\[\d+\])?)\s/);
+    const startsNewEntry = Boolean(
+      lines.length &&
+      (
+        (line.startsWith('#') && hasMsgstr) ||
+        (directive && ((hasMsgid && hasMsgstr) || hasObsolete))
+      )
+    );
+
+    if (startsNewEntry) flush();
+
+    lines.push(line);
+    if (/^#~/.test(line)) hasObsolete = true;
+    if (directive?.[1] === 'msgid') hasMsgid = true;
+    if (directive?.[1].startsWith('msgstr')) hasMsgstr = true;
+  }
+
+  flush();
+  return blocks;
+}
+
 export function parsePoCatalog(po) {
   if (typeof po !== 'string' || !po.trim()) {
     throw new Error('PO catalog is empty or is not a string.');
   }
 
   const normalized = po.replace(/^\uFEFF/, '');
-  const blocks = normalized.split(/\r?\n[ \t]*\r?\n/);
+  const blocks = splitPoBlocks(normalized);
   const entries = [];
   const index = new Map();
   let header = null;
