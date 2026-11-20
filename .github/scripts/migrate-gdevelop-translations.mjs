@@ -67,7 +67,7 @@ async function waitForImport(api, identifier, label) {
   }
   throw new Error('Timed out waiting for Crowdin import ' + label + ' (' + identifier + ').');
 }
-async function importPair(api, task) {
+async function buildMergePlan(api, task) {
   const label = task.languageId + '/' + task.catalog.output;
   const [sourcePo, destinationPo] = await Promise.all([
     exportPo(api, SOURCE_PROJECT_ID, task.sourceLanguageId, task.catalog.sourceFile.id, true),
@@ -83,13 +83,20 @@ async function importPair(api, task) {
     );
   }
 
+  return { label, sourcePo, delta };
+}
+function logMergePlan(label, delta, mode) {
   console.log(
-    'Phrase merge ' + label + ': upstream translated=' + delta.sourceTranslated +
+    mode + ' ' + label + ': upstream translated=' + delta.sourceTranslated +
     ', already present=' + delta.alreadyTranslated +
     ', unmatched source identities=' + delta.unmatched +
     ', source-equal=' + delta.sourceEqualsSource +
     ', missing translations=' + delta.deltaEntries + '.'
   );
+}
+async function importPair(api, task) {
+  const { label, sourcePo, delta } = await buildMergePlan(api, task);
+  logMergePlan(label, delta, 'Phrase merge');
 
   if (delta.deltaEntries === 0) {
     console.log('No Crowdin import required for ' + label + '.');
@@ -198,10 +205,16 @@ async function main() {
   console.log('Concurrent Imports API operations: ' + CONCURRENCY + '.');
 
   if (DRY_RUN) {
-    tasks.forEach(task => console.log(
-      'DRY RUN: compare ' + task.sourceLanguageId + '/' + task.catalog.output +
-      ' with GDNG ' + task.languageId + '; no Crowdin writes will be made.'
-    ));
+    const previewErrors = await mapConcurrent(tasks, CONCURRENCY, async task => {
+      const { label, delta } = await buildMergePlan(api, task);
+      logMergePlan(label, delta, 'DRY RUN');
+      return delta;
+    });
+    if (previewErrors.length) {
+      throw new Error(previewErrors.length + ' phrase merge preview(s) failed:\\n' +
+        previewErrors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\\n'));
+    }
+    console.log('DRY RUN complete: exact phrase-level deltas calculated; no Crowdin storage or import writes were made.');
     return;
   }
 
