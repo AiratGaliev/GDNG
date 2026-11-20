@@ -284,6 +284,55 @@ test('ignores obsolete PO entries and preserves the upstream header in a delta',
   assert.doesNotMatch(result.po, /msgid "Removed"/);
 });
 
+
+test('parses Crowdin PO exports where entry comments delimit records without blank lines', () => {
+  const sourcePo = [
+    '#: source/header.cpp:1',
+    'msgid ""',
+    'msgstr ""',
+    '"Content-Type: text/plain; charset=UTF-8\\n"',
+    '"Language: ru\\_RU\\n"',
+    '#: source/one.cpp:10',
+    'msgid "Open"',
+    'msgstr "Открыть"',
+    '#: source/two.cpp:20',
+    'msgid "Save"',
+    'msgstr "Сохранить"',
+    '#~ msgid "Obsolete"',
+    '#~ msgstr "Устаревшее"',
+    '#: source/three.cpp:30',
+    'msgid "Close"',
+    'msgstr "Закрыть"',
+  ].join('\n');
+
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Content-Type: text/plain; charset=UTF-8\\n"',
+    '"Language: ru_RU\\n"',
+    '#: target/one.cpp:10',
+    'msgid "Open"',
+    'msgstr "Открыть вручную"',
+    '#: target/two.cpp:20',
+    'msgid "Save"',
+    'msgstr ""',
+    '#: target/three.cpp:30',
+    'msgid "Close"',
+    'msgstr ""',
+  ].join('\n');
+
+  const parsed = parsePoCatalog(sourcePo);
+  assert.equal(parsed.entries.length, 3);
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.alreadyTranslated, 1);
+  assert.equal(result.deltaEntries, 2);
+  assert.match(result.po, /msgid "Save"/);
+  assert.match(result.po, /msgid "Close"/);
+  assert.doesNotMatch(result.po, /msgid "Open"/);
+  assert.doesNotMatch(result.po, /msgid "Obsolete"/);
+});
+
 test('fails closed on duplicate gettext identities instead of choosing an arbitrary translation', () => {
   const duplicateCatalog = [
     'msgid "Same"',
