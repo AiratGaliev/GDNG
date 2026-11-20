@@ -593,17 +593,22 @@ for (const jobName of [
   'core-sanitizers',
   'ide-fast-checks',
   'gdjs-fast-checks',
+  'localization-catalogs',
   'changed-storybook-tests',
   'fast-checks',
 ]) {
   extractIndentedSection(fastJobs, jobName, 2);
 }
 const fastAggregateJob = extractIndentedSection(fastJobs, 'fast-checks', 2);
-assert.match(fastAggregateJob, /needs:[\s\S]*?build-wasm[\s\S]*?core-sanitizers[\s\S]*?ide-fast-checks[\s\S]*?gdjs-fast-checks[\s\S]*?changed-storybook-tests/);
+assert.match(fastAggregateJob, /needs:[\s\S]*?build-wasm[\s\S]*?core-sanitizers[\s\S]*?ide-fast-checks[\s\S]*?gdjs-fast-checks[\s\S]*?localization-catalogs[\s\S]*?changed-storybook-tests/);
 assert.match(fastAggregateJob, /if: always\(\)/);
 assert.match(fastAggregateJob, /BUILD_WASM_RESULT/);
+assert.match(fastAggregateJob, /LOCALIZATION_CATALOGS_RESULT/);
 assert.match(fastAggregateJob, /CHANGED_STORYBOOK_RESULT/);
 assert.match(fastAggregateJob, /exit "\$failed"/);
+const fastLocalizationJob = extractIndentedSection(fastJobs, 'localization-catalogs', 2);
+assert.match(fastLocalizationJob, /node scripts\/validate-localization-catalogs\.cjs/);
+assert.match(fastLocalizationJob, /node-version: 24\.13\.0/);
 const fastWasmJob = extractIndentedSection(fastJobs, 'build-wasm', 2);
 assert.match(fastWasmJob, /emsdk install 3\.1\.21/);
 assert.match(fastWasmJob, /CMAKE_C_COMPILER_LAUNCHER=ccache/);
@@ -714,9 +719,12 @@ assert.match(committedLocalizationTriggers, /newIDE\/app\/src\/locales\/\*\*/);
 const committedLocalizationJobs = extractTopLevelSection(committedLocalizationWorkflow, 'jobs');
 const committedLocalizationJob = extractIndentedSection(committedLocalizationJobs, 'validate-localization-catalogs', 2);
 assert.match(committedLocalizationJob, /if: github\.ref == 'refs\/heads\/dev'/);
-assert.match(committedLocalizationJob, /LocalesMetadata\.js/);
-assert.match(committedLocalizationJob, /\['--check', file\]/);
-assert.match(committedLocalizationJob, /extension-messages\.js/);
+assert.match(committedLocalizationJob, /node scripts\/validate-localization-catalogs\.cjs/);
+const localizationCatalogValidator = read('scripts/validate-localization-catalogs.cjs');
+assert.match(localizationCatalogValidator, /LocalesMetadata\.js/);
+assert.match(localizationCatalogValidator, /--check/);
+assert.match(localizationCatalogValidator, /translationRatio/);
+assert.match(localizationCatalogValidator, /extension-messages\.js/);
 assert.match(committedLocalizationWorkflow, /contents: read/);
 assert.doesNotMatch(committedLocalizationWorkflow, /contents: write|pull-requests: write/);
 
