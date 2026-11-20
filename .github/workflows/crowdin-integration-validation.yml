@@ -1,0 +1,103 @@
+name: Crowdin integration validation
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - test
+      - main
+    paths:
+      - "crowdin.yml"
+      - ".github/scripts/**"
+      - ".github/workflows/crowdin-integration-validation.yml"
+      - ".github/workflows/extract-translations.yml"
+      - ".github/workflows/update-translations.yml"
+      - "newIDE/app/package.json"
+      - "newIDE/app/package-lock.json"
+      - "newIDE/app/scripts/extract-all-translations.js"
+      - "newIDE/app/scripts/compile-translations.js"
+      - "newIDE/app/scripts/lib/Locales.js"
+      - "scripts/ExtractTranslations.sh"
+      - "scripts/ExtractTranslations.bat"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crowdin-integration-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-crowdin-pipeline:
+    # Do not expose the Crowdin token to code from an external fork.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CROWDIN_PROJECT_ID: "948159"
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: newIDE/app/package-lock.json
+
+      - name: Install gettext
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gettext
+
+      - name: Install newIDE dependencies
+        run: npm ci
+        working-directory: newIDE/app
+
+      - name: Test Crowdin API helpers
+        run: node --test .github/scripts/tests/*.test.mjs
+
+      # Keep the upstream GDevelop order: extract before upload/download.
+      - name: Extract translations
+        run: npm run extract-all-translations
+        working-directory: newIDE/app
+
+      - name: Verify extracted source catalogs
+        run: |
+          test -s newIDE/app/src/locales/en/ide-messages.pot
+          test -s scripts/gdcore-gdcpp-gdjs-extensions-messages.pot
+
+      # This validates the same project_id_env, file patterns and CLI workflow used on main.
+      - name: Install Crowdin CLI
+        run: npm install --global @crowdin/cli@5.6.0
+
+      - name: Validate crowdin.yml
+        run: |
+          crowdin --version
+          crowdin config lint
+          crowdin config sources
+          crowdin config translations
+
+      # This is a no-write preview; real source upload remains exclusive to main.
+      - name: Verify GDNG upload target
+        run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
+
+      - name: Dry-run Crowdin source upload
+        run: crowdin upload sources --dryrun
+
+      - name: Audit GDevelop and GDNG parity (read-only)
+        run: node .github/scripts/audit-crowdin-parity.mjs
+
+      # Download from GDNG through per-file Export API, then run the real Lingui compile path.
+      - name: Download GDNG translations
+        run: node .github/scripts/download-crowdin-translations.mjs
+
+      - name: Remove locale not supported by the Lingui compile pipeline
+        run: rm -rf newIDE/app/src/locales/pcm_NG/
+
+      - name: Compile translations
+        run: npm run compile-translations
+        working-directory: newIDE/app
+
+      - name: Verify compiled catalogs and locale metadata
+        run: |
+          test -s newIDE/app/src/locales/en/messages.js
+          test -s newIDE/app/src/locales/LocalesMetadata.js

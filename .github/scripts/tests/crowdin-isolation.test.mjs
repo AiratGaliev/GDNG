@@ -76,20 +76,44 @@ test('compares translation progress only for mapped languages', () => {
   };
   const target = { targetLanguageIds: ['en', 'sw'] };
   const sourceRows = [
-    { languageId: 'en', phrases: { translated: 10 } },
-    { languageId: 'sw-KE', phrases: { translated: 2 } },
-    { languageId: 'ry-UA', phrases: { translated: 19 } },
+    { languageId: 'en', phrases: { translated: 10, approved: 8 } },
+    { languageId: 'sw-KE', phrases: { translated: 2, approved: 1 } },
+    // The unmatched Rusyn locale must not affect either aggregate.
+    { languageId: 'ry-UA', phrases: { translated: 19, approved: 19 } },
   ];
   const targetRows = [
-    { languageId: 'en', phrases: { translated: 9 } },
-    { languageId: 'sw', phrases: { translated: 2 } },
+    { languageId: 'en', phrases: { translated: 9, approved: 7 } },
+    { languageId: 'sw', phrases: { translated: 2, approved: 1 } },
   ];
   assert.deepEqual(compareMappedTranslations(source, target, sourceRows, targetRows), {
     mappedLanguages: 2,
     sourceTranslated: 12,
     targetTranslated: 11,
     difference: 1,
+    sourceApproved: 9,
+    targetApproved: 8,
+    approvalDifference: 1,
   });
+
+  const duplicateMappingSource = {
+    targetLanguageIds: ['sw-KE', 'sw-TZ'],
+    targetLanguages: [
+      { id: 'sw-KE', dialectOf: 'sw' },
+      { id: 'sw-TZ', dialectOf: 'sw' },
+    ],
+  };
+  assert.throws(
+    () => compareMappedTranslations(
+      duplicateMappingSource,
+      { targetLanguageIds: ['sw'] },
+      [
+        { languageId: 'sw-KE', phrases: { translated: 1 } },
+        { languageId: 'sw-TZ', phrases: { translated: 2 } },
+      ],
+      [{ languageId: 'sw', phrases: { translated: 3 } }]
+    ),
+    /Multiple upstream languages map/
+  );
 });
 
 test('validates consistent source phrase totals and sums approved phrases', () => {

@@ -8,7 +8,9 @@ on:
       - main
     paths:
       - ".github/scripts/**"
+      - "crowdin.yml"
       - ".github/workflows/crowdin-api-tests.yml"
+      - ".github/workflows/crowdin-integration-validation.yml"
       - ".github/workflows/sync-upstream-translations.yml"
       - ".github/workflows/update-translations.yml"
       - ".github/workflows/extract-translations.yml"

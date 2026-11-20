@@ -65,7 +65,11 @@ export function sumPhraseMetric(progressRows, metric) {
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new Error('Crowdin returned an invalid phrases.' + metric + ' value.');
     }
-    return sum + value;
+    const next = sum + value;
+    if (!Number.isSafeInteger(next)) {
+      throw new Error('Crowdin phrases.' + metric + ' total exceeds the safe integer range.');
+    }
+    return next;
   }, 0);
 }
 
@@ -74,9 +78,9 @@ export function compareMappedTranslations(sourceProject, targetProject, sourcePr
   const sourceLanguages = new Map((sourceProject.targetLanguages || []).map(language => [language.id, language]));
   const sourceProgress = new Map(sourceProgressRows.map(row => [row.languageId, row]));
   const targetProgress = new Map(targetProgressRows.map(row => [row.languageId, row]));
-  let sourceTranslated = 0;
-  let targetTranslated = 0;
-  let mappedLanguages = 0;
+  const mappedSourceRows = [];
+  const mappedTargetRows = [];
+  const matchedTargetIds = new Set();
 
   for (const sourceLanguageId of sourceProject.targetLanguageIds || []) {
     const language = sourceLanguages.get(sourceLanguageId) || { id: sourceLanguageId };
@@ -85,21 +89,34 @@ export function compareMappedTranslations(sourceProject, targetProject, sourcePr
       : (language.dialectOf && targetIds.has(language.dialectOf) ? language.dialectOf : null);
     if (!targetLanguageId) continue;
 
+    // Two upstream locales must not be silently counted against the same GDNG locale.
+    if (matchedTargetIds.has(targetLanguageId)) {
+      throw new Error('Multiple upstream languages map to GDNG language ' + targetLanguageId + '.');
+    }
+    matchedTargetIds.add(targetLanguageId);
+
     const upstreamRow = sourceProgress.get(sourceLanguageId);
     const gdngRow = targetProgress.get(targetLanguageId);
     if (!upstreamRow || !gdngRow) {
       throw new Error('Crowdin progress is incomplete for mapped language ' + sourceLanguageId + ' → ' + targetLanguageId + '.');
     }
-    sourceTranslated += Number(upstreamRow.phrases?.translated ?? 0);
-    targetTranslated += Number(gdngRow.phrases?.translated ?? 0);
-    mappedLanguages += 1;
+    mappedSourceRows.push(upstreamRow);
+    mappedTargetRows.push(gdngRow);
   }
 
+  const sourceTranslated = sumPhraseMetric(mappedSourceRows, 'translated');
+  const targetTranslated = sumPhraseMetric(mappedTargetRows, 'translated');
+  const sourceApproved = sumPhraseMetric(mappedSourceRows, 'approved');
+  const targetApproved = sumPhraseMetric(mappedTargetRows, 'approved');
+
   return {
-    mappedLanguages,
+    mappedLanguages: mappedSourceRows.length,
     sourceTranslated,
     targetTranslated,
     difference: sourceTranslated - targetTranslated,
+    sourceApproved,
+    targetApproved,
+    approvalDifference: sourceApproved - targetApproved,
   };
 }
 
@@ -188,20 +205,22 @@ async function auditParity() {
     sourceProjectProgress,
     targetProjectProgress
   );
-  const sourceApproved = sumPhraseMetric(sourceProjectProgress, 'approved');
-  const targetApproved = sumPhraseMetric(targetProjectProgress, 'approved');
   console.log(
     'Mapped-language translations: GDevelop=' + mappedTranslations.sourceTranslated +
     ', GDNG=' + mappedTranslations.targetTranslated +
     ', difference=' + mappedTranslations.difference +
     ' across ' + mappedTranslations.mappedLanguages + ' languages.'
   );
-  console.log('Approved phrases: GDevelop=' + sourceApproved + ', GDNG=' + targetApproved + '.');
+  console.log(
+    'Mapped-language approvals: GDevelop=' + mappedTranslations.sourceApproved +
+    ', GDNG=' + mappedTranslations.targetApproved +
+    ', difference=' + mappedTranslations.approvalDifference + '.'
+  );
   if (mappedTranslations.difference !== 0) {
     console.log('::warning::Translation totals differ on mapped languages. The phrase-level reconciler must distinguish source identities before any import.');
   }
-  if (sourceApproved > targetApproved) {
-    console.log('::warning::GDNG has fewer approved phrases than upstream; imported translations intentionally remain unapproved until GDNG review.');
+  if (mappedTranslations.approvalDifference > 0) {
+    console.log('::warning::GDevelop has more approved phrases on mapped languages; imported translations intentionally remain unapproved until GDNG review.');
   }
   console.log('Audit complete. No Crowdin project content or settings were changed.');
 }

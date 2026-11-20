@@ -48,7 +48,7 @@ jobs:
       # Only upload on Crowdin for the main branch
       - name: Install Crowdin CLI
         if: github.ref == 'refs/heads/main'
-        run: npm i -g @crowdin/cli
+        run: npm install --global @crowdin/cli@5.6.0
 
       - name: Upload translations to Crowdin
         run: crowdin upload sources
