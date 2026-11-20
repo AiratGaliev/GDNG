@@ -40,14 +40,11 @@ test('maps an upstream language dialect to the GDNG language identifier', () => 
   ]);
 });
 
-test('rejects ambiguous mapping of multiple GDNG locales to one upstream language', () => {
+test('rejects a GDNG locale without an exact or dialect upstream mapping', () => {
   assert.throws(() => mapLanguages(
     {
-      targetLanguageIds: ['sw-KE', 'sw-TZ'],
-      targetLanguages: [
-        { id: 'sw-KE', dialectOf: 'sw' },
-        { id: 'sw-TZ', dialectOf: 'sw' },
-      ],
+      targetLanguageIds: ['sw-KE'],
+      targetLanguages: [{ id: 'sw-KE', dialectOf: 'sw' }],
     },
     {
       targetLanguageIds: ['sw', 'sw-UG'],
@@ -56,7 +53,7 @@ test('rejects ambiguous mapping of multiple GDNG locales to one upstream languag
         'sw-UG': { locale_with_underscore: 'sw_UG' },
       },
     }
-  ), /Multiple GDNG languages map to upstream language sw/);
+  ), /No upstream language\/locale mapping for GDNG language sw-UG/);
 });
 
 test('builds tasks only for validated, non-empty upstream progress rows', () => {

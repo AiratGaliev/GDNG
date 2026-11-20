@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildMissingTranslationsPo,
   findMissingExpectedTranslationsPo,
+  parsePoCatalog,
 } from '../lib/po-catalog.mjs';
 
 test('reports and excludes source plural entries with missing forms', () => {
@@ -28,7 +29,7 @@ test('reports and excludes source plural entries with missing forms', () => {
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
   assert.equal(result.sourcePartiallyTranslated, 1);
   assert.equal(result.deltaEntries, 0);
-  assert.equal(result.po, '');
+  assert.equal(parsePoCatalog(result.po).entries.length, 0);
 });
 
 test('requires each imported singular/plural translation form to match exactly after import', () => {
