@@ -15,7 +15,18 @@ permissions:
   contents: read
 
 jobs:
+  ensure-crowdin-seed:
+    # The migration is only allowed from the production branch.
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/sync-upstream-translations.yml
+    permissions:
+      contents: write
+    secrets: inherit
+
   extract-translations:
+    needs: ensure-crowdin-seed
+    # Feature-branch extraction remains unchanged; on main, do not proceed if the seed failed.
+    if: ${{ always() && (needs.ensure-crowdin-seed.result == 'success' || needs.ensure-crowdin-seed.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       CROWDIN_PROJECT_ID: "948159"

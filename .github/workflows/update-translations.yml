@@ -14,7 +14,18 @@ concurrency:
   group: update-crowdin-translations
   cancel-in-progress: false
 jobs:
+  ensure-crowdin-seed:
+    # The migration is only allowed from the production branch.
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/sync-upstream-translations.yml
+    permissions:
+      contents: write
+    secrets: inherit
+
   update-translations:
+    needs: ensure-crowdin-seed
+    # Manual dispatch from a non-main branch keeps the existing behavior; main must pass the seed first.
+    if: ${{ always() && (needs.ensure-crowdin-seed.result == 'success' || needs.ensure-crowdin-seed.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       CROWDIN_PROJECT_ID: "948159"

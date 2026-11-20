@@ -10,6 +10,7 @@ on:
       - "crowdin.yml"
       - ".github/scripts/**"
       - ".github/workflows/crowdin-integration-validation.yml"
+      - ".github/workflows/sync-upstream-translations.yml"
       - ".github/workflows/extract-translations.yml"
       - ".github/workflows/update-translations.yml"
       - "newIDE/app/package.json"
@@ -64,11 +65,13 @@ jobs:
           test -s newIDE/app/src/locales/en/ide-messages.pot
           test -s scripts/gdcore-gdcpp-gdjs-extensions-messages.pot
 
-      # This validates the same project_id_env, file patterns and CLI workflow used on main.
+      # Validate the Crowdin CLI configuration without performing a remote write.
       - name: Install Crowdin CLI
         run: npm install --global @crowdin/cli@5.6.0
 
       - name: Validate crowdin.yml
+        env:
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: |
           crowdin --version
           crowdin config lint
@@ -90,6 +93,16 @@ jobs:
         env:
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs
+
+      # Same importer as main, but DRY_RUN=true so PR validation never changes project content.
+      - name: Preview the one-time upstream seed
+        env:
+          SOURCE_PROJECT_ID: "79367"
+          TARGET_PROJECT_ID: "948159"
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_IMPORT_CONCURRENCY: "4"
+          DRY_RUN: "true"
+        run: node .github/scripts/migrate-gdevelop-translations.mjs
 
       # Download from GDNG through per-file Export API, then run the real Lingui compile path.
       - name: Download GDNG translations

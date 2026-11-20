@@ -4,28 +4,35 @@ This directory contains the reusable Crowdin API integration used by the transla
 
 ## Data flow
 
-The workflows deliberately separate the upstream seed import from the normal GDNG translation sync:
+The workflows separate the one-time upstream seed from all subsequent translation operations:
 
-1. **GDevelop → GDNG Crowdin (Imports API).** `migrate-gdevelop-translations.mjs` is a manual seed/resume operation for reconciling translated source entries from upstream GDevelop with GDNG. It downloads the upstream translated PO and the complete destination PO, matches entries by the gettext source identity (`msgctxt`, `msgid`, and `msgid_plural`), and uploads only entries that exist in the destination catalog and still have no translation there.
+1. **Automatic one-time GDevelop → GDNG seed.** Both standard translation workflows call `.github/workflows/sync-upstream-translations.yml` before doing any work on `main`. The reusable workflow imports only missing translations by exact gettext identity. A successful, verified run creates the Git tag `gdng-crowdin-seed-v1-complete`. The tag is the durable completion marker: later runs skip the seed and proceed directly to the normal pipeline. Job-level concurrency ensures that the Extract and Update workflows cannot run two seed imports at the same time. If the import fails, the marker is not written and the dependent standard workflow does not proceed; the next main-branch run retries the idempotent reconciliation.
 2. **GDNG Crowdin → repository (Export API).** `download-crowdin-translations.mjs` exports the complete PO catalogs from GDNG project `948159` for each target language and installs them using the same `locale_with_underscore` paths declared in the unchanged `crowdin.yml`. `update-translations.yml` keeps the GDevelop order: extract source catalogs, download translations, compile with Lingui, verify the English catalog and open the translation PR. File-based Export API downloads avoid depending on a whole-project build permission.
-3. **Source catalogs → GDNG Crowdin.** `extract-translations.yml` keeps the GDevelop trigger model: extraction runs on every branch and source upload runs only on `main`. The upload still uses `crowdin upload sources` and the existing `crowdin.yml`; a preflight verifies that the pinned destination is GDNG before upload.
+3. **Source catalogs → GDNG Crowdin.** `extract-translations.yml` keeps the GDevelop trigger model: extraction runs on every branch and source upload runs only on `main`. On `main`, source upload is gated behind the successful one-time seed and still uses `crowdin upload sources` with the existing `crowdin.yml`.
 4. **Crowdin parity audit.** `audit-crowdin-parity.mjs` compares upstream and GDNG project identities, language coverage, source phrase counts, translations and approvals. The audit itself uses GET requests only. Its mapped-language metrics exclude locales without a GDNG counterpart, avoiding misleading approval totals.
 
 GDNG Crowdin is the source of truth for subsequent translation edits. Upstream reconciliation is additive: existing GDNG translations are not included in the import delta, regardless of whether they are approved or unapproved. Imported translations remain unapproved.
 
 ## Scripts
 
-- `lib/crowdin-api.mjs` — shared authenticated API client, safe retries for GET and explicit 429 write rejections, storage upload, import-report helpers and a bounded worker pool.
+- `lib/crowdin-api.mjs` — shared authenticated API client, bounded timeouts/retries, safe handling of write retries, storage upload, import-report helpers and a bounded worker pool.
 - `lib/crowdin-projects.mjs` — pinned GDevelop (`79367`, read-only) and GDNG (`948159`, write destination) identities plus fail-closed project guards.
 - `audit-crowdin-parity.mjs` — read-only upstream/GDNG parity audit, pure language/catalog/progress comparison helpers, and the `--assert-upload-target` preflight used before the Crowdin CLI source upload.
 - `lib/po-catalog.mjs` — strict gettext PO parser and phrase-level delta builder. Identity is the exact tuple of context, singular source text and plural source text. Duplicate identities or malformed PO syntax fail closed.
-- `migrate-gdevelop-translations.mjs` — manual upstream reconciler (source project `79367`, target project `948159`). It imports only missing translations for matching destination source entries.
+- `migrate-gdevelop-translations.mjs` — idempotent additive reconciler (source project `79367`, target project `948159`). It imports only missing translations for matching destination source entries and verifies each imported pair afterward.
 - `download-crowdin-translations.mjs` — exports complete PO catalogs from GDNG project `948159` to the repository locale tree; it rejects a wrong project ID and missing per-file progress before installing any files.
 - `tests/crowdin-api.test.mjs` and `tests/crowdin-isolation.test.mjs` — dependency-free Node.js tests for PO parsing, delta generation, bounded concurrency/retries, project isolation, locale aliases, phrase totals and approval metrics.
 
-## Manual upstream reconciliation
+## Automatic one-time upstream seed
 
-The **Sync upstream GDevelop translations** workflow runs in two modes. Every push to the dedicated `ops/import-gdevelop-translations-once-20261119` branch automatically performs a read-only preview (`DRY_RUN=true`); it exports both catalogs and calculates the exact phrase-level delta for every source-non-empty file/language pair without creating storage objects or importing translations. Manual `workflow_dispatch` defaults to `dry_run=true`; set it to false only when intentionally running the additive import. The workflow pins the target to GDNG rather than taking a write destination from a repository secret.
+The seed workflow is reusable and is not an independently scheduled/manual operation. It is a mandatory prerequisite of both standard workflows on `main`:
+
+- `extract-translations.yml` waits for the seed before uploading source catalogs to GDNG.
+- `update-translations.yml` waits for the seed before exporting GDNG translations and creating the translation PR.
+- Both callers share the concurrency group `gdng-upstream-crowdin-seed-v1`. The first obtains the lock, checks the completion tag and performs the import when the tag is absent. The other waits, then sees the tag and skips the import.
+- The immutable Git tag `gdng-crowdin-seed-v1-complete` is created only after the importer has checked both real Crowdin project identities, reconciled every supported file/language pair and verified the post-import destination exports. The tag is the one-time state; a GitHub Actions cache or expiring artifact is deliberately not used.
+- If the job fails before creating the tag, the dependent workflow is blocked. A subsequent push or manual run on `main` retries the migration. Since the importer calculates a fresh delta and excludes every existing destination translation, a retry does not overwrite existing GDNG translations or approvals.
+- The PR validation workflow runs the same importer with `DRY_RUN=true`, in addition to validating the Crowdin CLI configuration, dry-running source upload, downloading GDNG translations and compiling the catalogs. Pull-request validation never imports data into either project.
 
 For each file/language pair, the importer:
 
@@ -44,9 +51,9 @@ Import concurrency defaults to four and is capped at six. Only explicit 429 reje
 - `CROWDIN_PERSONAL_TOKEN` is required and must be stored in GitHub Actions Secrets.
 - Project IDs are fixed in `lib/crowdin-projects.mjs`: upstream GDevelop is `79367` and is read-only; GDNG is `948159` and is the only permitted destination for source uploads and translation imports.
 - Any supplied `SOURCE_PROJECT_ID`, `TARGET_PROJECT_ID` or `CROWDIN_PROJECT_ID` override is validated against the fixed identity. A value of `79367` is rejected by every GDNG write/download entry point.
-- `extract-translations.yml` and `update-translations.yml` pin `CROWDIN_PROJECT_ID=948159` at job scope and never consume a project-ID secret. Extraction verifies the actual GDNG identity before `crowdin upload sources`; the regular downloader validates GDNG before requesting Export API jobs.
-- `crowdin-integration-validation.yml` checks the unchanged CLI configuration, runs `crowdin upload sources --dryrun`, downloads the complete GDNG locale set and compiles it with Lingui on relevant same-repository PRs. It performs no Crowdin content writes and creates no PR.
-- The parity audit uses GET requests only. Phrase reconciliation creates temporary Crowdin Export API jobs to read source/destination PO files; these jobs do not update project content. Storage uploads, Imports API writes, approvals, source uploads, file updates and project setting mutations are directed only at GDNG, never at upstream GDevelop.
+- `extract-translations.yml` and `update-translations.yml` pin `CROWDIN_PROJECT_ID=948159` and never consume a project-ID secret. Extraction verifies the actual GDNG identity before `crowdin upload sources`; the regular downloader validates GDNG before requesting Export API jobs.
+- The reusable seed workflow receives `contents: write` only to publish its completion tag. The Crowdin personal token is exposed only to the import step; upstream GDevelop remains read-only.
+- The parity audit uses GET requests only. Phrase reconciliation creates temporary Crowdin Export API jobs to read source/destination PO files; these jobs do not update project content. Storage uploads, Imports API writes and source uploads are directed only at GDNG, never at upstream GDevelop.
 - `CROWDIN_BASE_URL` can override the default public Crowdin API base URL for compatible environments.
 
 No PO export files or API credentials are committed by these scripts.
