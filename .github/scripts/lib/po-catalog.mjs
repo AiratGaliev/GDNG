@@ -273,9 +273,20 @@ function hasMeaningfulTranslation(entry) {
   return false;
 }
 
-function hasPartiallyTranslatedSourcePlural(entry) {
+function getPluralFormCount(header) {
+  const headerText = header?.translations?.get(0) || '';
+  const match = String(headerText).match(/\\bPlural-Forms:\\s*nplurals\\s*=\\s*(\\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function hasPartiallyTranslatedSourcePlural(entry, expectedFormCount) {
   if (entry.msgidPlural === undefined) return false;
-  const forms = [...entry.translations.values()];
+  const inferredFormCount = entry.translations.size
+    ? Math.max(...entry.translations.keys()) + 1
+    : 0;
+  const formCount = expectedFormCount || inferredFormCount;
+  if (formCount < 2) return false;
+  const forms = Array.from({ length: formCount }, (_, index) => entry.translations.get(index) || '');
   return forms.some(Boolean) && forms.some(value => value.length === 0);
 }
 
@@ -343,6 +354,7 @@ function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
 export function buildMissingTranslationsPo(sourcePo, destinationPo) {
   const source = parsePoCatalog(sourcePo);
   const destination = parsePoCatalog(destinationPo);
+  const expectedPluralFormCount = getPluralFormCount(source.header);
   const deltaEntries = [];
 
   let sourceTranslated = 0;
@@ -355,7 +367,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
 
   for (const entry of source.entries) {
     if (!hasAnyTranslation(entry)) continue;
-    if (hasPartiallyTranslatedSourcePlural(entry)) {
+    if (hasPartiallyTranslatedSourcePlural(entry, expectedPluralFormCount)) {
       sourcePartiallyTranslated += 1;
       continue;
     }

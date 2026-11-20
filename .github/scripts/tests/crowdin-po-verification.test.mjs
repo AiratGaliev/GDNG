@@ -32,6 +32,35 @@ test('reports and excludes source plural entries with missing forms', () => {
   assert.equal(parsePoCatalog(result.po).entries.length, 0);
 });
 
+
+test('detects a plural form omitted entirely from a catalog entry', () => {
+  const sourcePo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] "предмет"',
+    'msgstr[1] "предметы"',
+  ].join('\\n');
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] ""',
+    'msgstr[1] ""',
+    'msgstr[2] ""',
+  ].join('\\n');
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.sourcePartiallyTranslated, 1);
+  assert.equal(result.deltaEntries, 0);
+});
+
 test('requires each imported singular/plural translation form to match exactly after import', () => {
   const expectedPo = [
     'msgid ""',
