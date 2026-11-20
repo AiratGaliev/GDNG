@@ -218,6 +218,35 @@ test('matches source entries by gettext context, msgid and plural identity', () 
   assert.equal(countNonEmptyTranslations(result.po), 2);
 });
 
+
+test('preserves partially translated plural entries and reports them separately', () => {
+  const sourcePo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] "предмет"',
+    'msgstr[1] "предметы"',
+  ].join('\n');
+  const destinationPo = [
+    'msgid ""',
+    'msgstr ""',
+    '',
+    'msgid "item"',
+    'msgid_plural "items"',
+    'msgstr[0] "существующий перевод"',
+    'msgstr[1] ""',
+  ].join('\n');
+
+  const result = buildMissingTranslationsPo(sourcePo, destinationPo);
+  assert.equal(result.sourceTranslated, 1);
+  assert.equal(result.matched, 1);
+  assert.equal(result.alreadyTranslated, 0);
+  assert.equal(result.partiallyTranslated, 1);
+  assert.equal(result.deltaEntries, 0);
+});
+
 test('decodes gettext octal escapes and joins multiline source/context strings before matching', () => {
   const sourcePo = [
     'msgid ""',
