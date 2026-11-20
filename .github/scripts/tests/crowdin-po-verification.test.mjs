@@ -37,7 +37,7 @@ test('detects a plural form omitted entirely from a catalog entry', () => {
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=3; plural=(n != 1);\n"',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
     '',
     'msgid "item"',
     'msgid_plural "items"',
@@ -47,7 +47,7 @@ test('detects a plural form omitted entirely from a catalog entry', () => {
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=3; plural=(n != 1);\n"',
+    '"Plural-Forms: nplurals=3; plural=(n != 1);\\n"',
     '',
     'msgid "item"',
     'msgid_plural "items"',
