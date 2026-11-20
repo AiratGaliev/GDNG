@@ -17,6 +17,8 @@ permissions:
 jobs:
   extract-translations:
     runs-on: ubuntu-latest
+    env:
+      CROWDIN_PROJECT_ID: "948159"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -40,7 +42,6 @@ jobs:
       - name: Verify Crowdin upload target
         if: github.ref == 'refs/heads/main'
         env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
 
@@ -53,5 +54,4 @@ jobs:
         run: crowdin upload sources
         if: github.ref == 'refs/heads/main'
         env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}

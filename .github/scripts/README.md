@@ -44,7 +44,7 @@ Import concurrency defaults to four and is capped at six. Only explicit 429 reje
 - `CROWDIN_PERSONAL_TOKEN` is required and must be stored in GitHub Actions Secrets.
 - Project IDs are fixed in `lib/crowdin-projects.mjs`: upstream GDevelop is `79367` and is read-only; GDNG is `948159` and is the only permitted destination for source uploads and translation imports.
 - Any supplied `SOURCE_PROJECT_ID`, `TARGET_PROJECT_ID` or `CROWDIN_PROJECT_ID` override is validated against the fixed identity. A value of `79367` is rejected by every GDNG write/download entry point.
-- `extract-translations.yml` verifies the actual GDNG project through a GET request before running `crowdin upload sources`. The migration validates both remote project identities before Export, Storage or Imports operations. The regular downloader validates GDNG before requesting Export API jobs.
+- `extract-translations.yml` pins `CROWDIN_PROJECT_ID=948159` at job scope and verifies the actual GDNG project through a GET request before running `crowdin upload sources`; it does not rely on a project-ID secret. The migration validates both remote project identities before Export, Storage or Imports operations. The regular downloader validates GDNG before requesting Export API jobs.
 - The audit and all source-project operations use read-only GET/export operations. No source upload, translation import, approval, file update or project setting mutation is directed at GDevelop.
 - `CROWDIN_BASE_URL` can override the default public Crowdin API base URL for compatible environments.
 
