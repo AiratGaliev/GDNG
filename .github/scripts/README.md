@@ -28,7 +28,7 @@ Import concurrency defaults to four and is capped at six in the script. Each wor
 ## Credentials
 
 - `CROWDIN_PERSONAL_TOKEN` is required and must be stored in GitHub Actions Secrets.
-- The project IDs are public identifiers and are configured in the workflow/script, not stored as secrets.
+- The project IDs are public identifiers; the workflows reuse the existing `CROWDIN_PROJECT_ID` repository secret so uploads and downloads cannot drift to different Crowdin projects.
 - `CROWDIN_BASE_URL` can override the default public Crowdin API base URL for compatible environments.
 
 No PO export files or API credentials are committed by these scripts.
