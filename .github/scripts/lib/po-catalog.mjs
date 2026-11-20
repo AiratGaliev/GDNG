@@ -313,7 +313,9 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
   }
 
   const outputBlocks = [
-    ...(source.header ? [source.header.raw] : []),
+    // The delta belongs to the destination project, so retain its Crowdin
+    // metadata rather than leaking the upstream project/file identifiers.
+    ...(destination.header ? [destination.header.raw] : source.header ? [source.header.raw] : []),
     ...deltaEntries.map(entry => entry.raw),
   ];
   const po = outputBlocks.length ? outputBlocks.join('\n\n').replace(/\s+$/, '') + '\n' : '';
