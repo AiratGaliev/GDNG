@@ -97,6 +97,10 @@ jobs:
           translations_dir="$extensions_repo/.translations"
           test -s "$translations_dir/LocalesMetadata.js"
 
+          # Remove only extension-generated artifacts before mirroring the upstream set.
+          find newIDE/app/src/locales -mindepth 2 -maxdepth 2 -type f -name 'extension-messages.js' -delete
+          rm -f newIDE/app/src/locales/ExtensionLocalesMetadata.js
+
           locale_count=0
           for folder in "$translations_dir"/*; do
             [[ -d "$folder" ]] || continue
