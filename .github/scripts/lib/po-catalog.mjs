@@ -340,19 +340,14 @@ function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
   if (sourceEntry.msgidPlural === undefined) return false;
 
   const requiredForms = [...sourceEntry.translations]
-    .filter(([pluralIndex, translation]) =>
-      translation.length > 0 && translation !== sourceTextForTranslation(sourceEntry, pluralIndex)
-    )
+    .filter(([, translation]) => translation.length > 0)
     .map(([pluralIndex]) => pluralIndex);
   if (requiredForms.length < 2) return false;
 
   const presentForms = new Set(
-    requiredForms.filter(pluralIndex => {
-      const translation = destinationEntry.translations.get(pluralIndex);
-      return Boolean(
-        translation && translation !== sourceTextForTranslation(sourceEntry, pluralIndex)
-      );
-    })
+    [...destinationEntry.translations]
+      .filter(([, translation]) => translation.length > 0)
+      .map(([pluralIndex]) => pluralIndex)
   );
 
   const presentCount = requiredForms.filter(index => presentForms.has(index)).length;
@@ -403,7 +398,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
     }
 
     matched += 1;
-    if (hasMeaningfulTranslation(destinationEntry)) {
+    if (hasAnyTranslation(destinationEntry)) {
       if (hasPartiallyTranslatedPlural(entry, destinationEntry)) {
         partiallyTranslated += 1;
       } else {

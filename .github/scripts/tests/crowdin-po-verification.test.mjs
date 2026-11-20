@@ -33,55 +33,56 @@ test('reports and excludes source plural entries with missing forms', () => {
 });
 
 
-test('imports upstream text when destination msgstr only repeats the source', () => {
+test('preserves a non-empty destination msgstr that repeats its source text', () => {
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
     '',
     'msgid "Save"',
     'msgstr "Сохранить"',
-  ].join('\n');
+  ].join('\\n');
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
     '',
     'msgid "Save"',
     'msgstr "Save"',
-  ].join('\n');
+  ].join('\\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
-  assert.equal(result.alreadyTranslated, 0);
-  assert.equal(result.conflictingEntries, 0);
-  assert.equal(result.deltaEntries, 1);
-  assert.match(result.po, /msgstr "Сохранить"/);
+  assert.equal(result.alreadyTranslated, 1);
+  assert.equal(result.conflictingEntries, 1);
+  assert.equal(result.deltaEntries, 0);
+  assert.doesNotMatch(result.po, /msgid "Save"/);
 });
 
-test('treats source-equal plural forms as untranslated while comparing meaningful forms', () => {
+test('preserves source-equal plural forms and reports upstream differences', () => {
   const sourcePo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"',
+    '"Plural-Forms: nplurals=2; plural=(n != 1);\\\\n"',
     '',
     'msgid "file"',
     'msgid_plural "files"',
     'msgstr[0] "file"',
     'msgstr[1] "файлы"',
-  ].join('\n');
+  ].join('\\n');
   const destinationPo = [
     'msgid ""',
     'msgstr ""',
-    '"Plural-Forms: nplurals=2; plural=(n != 1);\\n"',
+    '"Plural-Forms: nplurals=2; plural=(n != 1);\\\\n"',
     '',
     'msgid "file"',
     'msgid_plural "files"',
     'msgstr[0] "file"',
     'msgstr[1] "files"',
-  ].join('\n');
+  ].join('\\n');
 
   const result = buildMissingTranslationsPo(sourcePo, destinationPo);
-  assert.equal(result.alreadyTranslated, 0);
+  assert.equal(result.alreadyTranslated, 1);
   assert.equal(result.partiallyTranslated, 0);
-  assert.equal(result.deltaEntries, 1);
+  assert.equal(result.conflictingEntries, 1);
+  assert.equal(result.deltaEntries, 0);
 });
 
 test('detects a plural form omitted entirely from a catalog entry', () => {
