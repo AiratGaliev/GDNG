@@ -1,0 +1,55 @@
+name: Crowdin API tests
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - test
+      - main
+    paths:
+      - ".github/scripts/**"
+      - "crowdin.yml"
+      - ".github/workflows/crowdin-api-tests.yml"
+      - ".github/workflows/crowdin-integration-validation.yml"
+      - ".github/workflows/sync-upstream-translations.yml"
+      - ".github/workflows/update-translations.yml"
+      - ".github/workflows/extract-translations.yml"
+  push:
+    branches:
+      - dev
+      - test
+      - main
+    paths:
+      - ".github/scripts/**"
+      - "crowdin.yml"
+      - ".github/workflows/crowdin-api-tests.yml"
+      - ".github/workflows/crowdin-integration-validation.yml"
+      - ".github/workflows/sync-upstream-translations.yml"
+      - ".github/workflows/update-translations.yml"
+      - ".github/workflows/extract-translations.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crowdin-api-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crowdin-api-tests:
+    name: Crowdin API unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+      - name: Check Crowdin script syntax
+        run: |
+          node --check .github/scripts/migrate-gdevelop-translations.mjs
+          node --check .github/scripts/download-crowdin-translations.mjs
+          node --check .github/scripts/audit-crowdin-parity.mjs
+      - name: Run Crowdin API tests
+        run: node --test .github/scripts/tests/*.test.mjs
