@@ -1,0 +1,36 @@
+name: Sync upstream GDevelop translations
+on:
+  # Seed or resume the upstream import only when explicitly requested.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only list missing file/language pairs without importing
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: gdng-upstream-translation-sync
+  cancel-in-progress: false
+jobs:
+  sync-upstream-translations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test Crowdin API helpers
+        run: node --test .github/scripts/tests/*.test.mjs
+      - name: Import missing translations from GDevelop into GDNG
+        env:
+          SOURCE_PROJECT_ID: "79367"
+          TARGET_PROJECT_ID: "948159"
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_IMPORT_CONCURRENCY: "4"
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: node .github/scripts/migrate-gdevelop-translations.mjs
