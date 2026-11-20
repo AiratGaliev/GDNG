@@ -60,3 +60,55 @@ test('retries transient API failures and supplies bearer authentication', async 
   assert.equal(authorization, 'Bearer test-token');
   assert.equal(response.data.status, 'ok');
 });
+
+test('retries an explicitly rejected Crowdin 429 for a POST operation', async () => {
+  let calls = 0;
+  const client = createCrowdinApi({
+    token: 'test-token',
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response('{"error":{"message":"too many concurrent imports"}}', {
+          status: 429,
+          headers: { 'Retry-After': '0' },
+        });
+      }
+      return new Response('{"data":{"identifier":"import-123"}}', {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    sleepImpl: async () => {},
+  });
+
+  const response = await client.request('projects/123/translations/imports', {
+    method: 'POST',
+    body: { storageId: 1 },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(response.data.identifier, 'import-123');
+});
+
+test('does not retry ambiguous server failures for POST operations', async () => {
+  let calls = 0;
+  const client = createCrowdinApi({
+    token: 'test-token',
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response('{"error":{"message":"temporary server error"}}', {
+        status: 503,
+      });
+    },
+    sleepImpl: async () => {},
+  });
+
+  await assert.rejects(
+    client.request('projects/123/translations/imports', {
+      method: 'POST',
+      body: { storageId: 1 },
+    }),
+    /failed \(503\)/
+  );
+  assert.equal(calls, 1);
+});

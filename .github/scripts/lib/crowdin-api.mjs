@@ -31,7 +31,7 @@ export function createCrowdinApi({
   if (!token) throw new Error('CROWDIN_PERSONAL_TOKEN is not configured.');
   if (typeof fetchImpl !== 'function') throw new Error('Node.js global fetch is required.');
   const apiBase = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
-  async function request(endpoint, { method = 'GET', body, headers: suppliedHeaders = {}, timeout = timeoutMs } = {}) {
+  async function request(endpoint, { method = 'GET', body, headers: suppliedHeaders = {}, timeout = timeoutMs, retryNetworkErrors = method.toUpperCase() === 'GET', retryServerErrors = method.toUpperCase() === 'GET' } = {}) {
     const url = new URL(endpoint.replace(/^\/+/, ''), apiBase);
     const headers = new Headers(suppliedHeaders);
     headers.set('Authorization', 'Bearer ' + token);
@@ -46,13 +46,13 @@ export function createCrowdinApi({
           signal: AbortSignal.timeout(timeout),
         });
       } catch (error) {
-        if (attempt >= maxRetries) throw error;
+        if (!retryNetworkErrors || attempt >= maxRetries) throw error;
         await sleepImpl(Math.min(30_000, 1_000 * (2 ** attempt)));
         continue;
       }
       const payload = parseBody(await response.text());
       if (response.ok) return payload;
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      const retryable = response.status === 429 || (retryServerErrors && (response.status === 408 || response.status >= 500));
       if (!retryable || attempt >= maxRetries) throw new CrowdinApiError(method, endpoint, response.status, payload);
       await sleepImpl(Math.max(retryAfterMs(response.headers.get('retry-after')), Math.min(30_000, 1_000 * (2 ** attempt))));
     }
@@ -90,16 +90,15 @@ export function createCrowdinApi({
           signal: AbortSignal.timeout(120_000),
         });
       } catch (error) {
-        if (attempt >= maxRetries) throw error;
-        await sleepImpl(Math.min(30_000, 1_000 * (2 ** attempt)));
-        continue;
+        // A network failure is ambiguous for a write; do not upload a duplicate storage object.
+        throw error;
       }
       const payload = parseBody(await response.text());
       if (response.ok) {
         if (!payload?.data?.id) throw new Error('Crowdin storage upload returned no storage id.');
         return payload.data.id;
       }
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+      const retryable = response.status === 429;
       if (!retryable || attempt >= maxRetries) throw new CrowdinApiError('POST', '/storages', response.status, payload);
       await sleepImpl(Math.max(retryAfterMs(response.headers.get('retry-after')), Math.min(30_000, 1_000 * (2 ** attempt))));
     }

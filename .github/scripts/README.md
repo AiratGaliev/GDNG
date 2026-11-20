@@ -14,7 +14,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream c
 
 ## Scripts
 
-- `lib/crowdin-api.mjs` — shared authenticated API client, bounded retries for transient failures, storage upload, PO helpers and bounded worker pool.
+- `lib/crowdin-api.mjs` — shared authenticated API client, safe retries for GET and explicit 429 write rejections, storage upload, PO helpers and a bounded worker pool.
 - `migrate-gdevelop-translations.mjs` — one-time/resume-only upstream importer (source project `79367`, target project `948159`).
 - `download-crowdin-translations.mjs` — exports complete PO catalogs from GDNG project `948159` to the repository locale tree.
 - `tests/crowdin-api.test.mjs` — dependency-free Node.js tests for PO parsing, bounded concurrency and retry behaviour.
@@ -23,7 +23,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream c
 
 The **Sync upstream GDevelop translations** workflow is manually dispatched. Set `dry_run=true` to list the missing file/language pairs without changing Crowdin. Run without dry-run only when intentionally seeding missing pairs.
 
-Import concurrency defaults to four and is capped at six in the script. Each worker waits for its Import API operation to finish before starting another pair, keeping the number of active Crowdin imports below the project limit. Translations remain unapproved and existing destination pairs are preserved.
+Import concurrency defaults to four and is capped at six in the script. Each worker waits for its Import API operation to finish before starting another pair, keeping the number of active Crowdin imports below the project limit. Only explicit 429 rejections are retried for write operations to avoid duplicate imports after ambiguous failures. Translations remain unapproved and existing destination pairs are preserved.
 
 ## Credentials
 
