@@ -89,6 +89,7 @@ function logMergePlan(label, delta, mode) {
   console.log(
     mode + ' ' + label + ': upstream translated=' + delta.sourceTranslated +
     ', already present=' + delta.alreadyTranslated +
+    ', partially translated plural entries=' + delta.partiallyTranslated +
     ', unmatched source identities=' + delta.unmatched +
     ', source-equal=' + delta.sourceEqualsSource +
     ', missing translations=' + delta.deltaEntries + '.'
@@ -98,6 +99,13 @@ async function importPair(api, task) {
   const { label, sourcePo, delta } = await buildMergePlan(api, task);
   logMergePlan(label, delta, 'Phrase merge');
 
+  if (delta.partiallyTranslated > 0) {
+    console.warn(
+      'Preserving ' + delta.partiallyTranslated +
+      ' partially translated plural entries in ' + label +
+      '; they need a separate form-level review and will not be overwritten.'
+    );
+  }
   if (delta.deltaEntries === 0) {
     console.log('No Crowdin import required for ' + label + '.');
     return;
@@ -153,7 +161,13 @@ async function importPair(api, task) {
   if (verification.deltaEntries > 0) {
     throw new Error(
       'Phrase merge verification failed for ' + label + ': ' +
-      verification.deltaEntries + ' matched translations are still missing after import.'
+      verification.deltaEntries + ' fully untranslated matched entries are still missing after import.'
+    );
+  }
+  if (verification.partiallyTranslated > 0) {
+    console.warn(
+      'Post-import verification preserved ' + verification.partiallyTranslated +
+      ' partially translated plural entries in ' + label + '.'
     );
   }
 
@@ -224,8 +238,8 @@ async function main() {
       errors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\n'));
   }
 
-  console.log('VERIFIED: all matched upstream translations missing before each import are now present in GDNG.');
+  console.log('VERIFIED: all fully untranslated matched upstream entries are now present in GDNG.');
   console.log('Unmatched source identities were not imported; imported translations remain unapproved.');
-  console.log('Existing target translations and their approval state were preserved.');
+  console.log('Existing translations and approvals were preserved. Partially translated plural entries were left untouched for separate review.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
