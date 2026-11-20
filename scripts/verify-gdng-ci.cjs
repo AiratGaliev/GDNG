@@ -500,6 +500,27 @@ assert.match(
 );
 assert.doesNotMatch(publisherJob, /GDNG_GITHUB_TOKEN/);
 
+const desktopPackage = JSON.parse(
+  read('newIDE/electron-app/app/package.json')
+);
+const desktopPackageLock = JSON.parse(
+  read('newIDE/electron-app/app/package-lock.json')
+);
+assert.match(
+  desktopPackage.version,
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+);
+assert.equal(
+  desktopPackageLock.version,
+  desktopPackage.version,
+  'Electron app package-lock root version must match package.json.'
+);
+assert.equal(
+  desktopPackageLock.packages[''].version,
+  desktopPackage.version,
+  'Electron app package-lock package entry must match package.json.'
+);
+
 const publisher = read('scripts/publish-gdng-release.cjs');
 assert.match(publisher, /GITHUB_TOKEN/);
 assert.match(publisher, /GDNG_SOURCE_SHA/);
@@ -513,6 +534,12 @@ assert.match(publisher, /release\.body\.includes\(publisherMarker\)/);
 assert.match(publisher, /publisherMarker,/);
 assert.match(publisher, /--validate-only/);
 assert.match(publisher, /gdng-v' \+ version/);
+assert.match(publisher, /const isPrerelease =/);
+assert.match(publisher, /prerelease: isPrerelease/);
+assert.match(
+  publisher,
+  /\{ draft: false, prerelease: isPrerelease \}/
+);
 assert.match(publisher, /draft: false/);
 assert.match(publisher, /SHA256SUMS\.txt/);
 assert.doesNotMatch(publisher, /circleBuildUrl/);
