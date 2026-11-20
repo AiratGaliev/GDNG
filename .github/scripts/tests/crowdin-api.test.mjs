@@ -230,7 +230,7 @@ test('decodes gettext octal escapes and joins multiline source/context strings b
     'msgstr "Открыть файл"',
     '',
     'msgctxt "ellipsis"',
-    'msgid "\342\200\246"',
+    'msgid "\\342\\200\\246"',
     'msgstr "многоточие"',
   ].join('\n');
   const destinationPo = [
