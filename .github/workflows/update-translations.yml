@@ -26,7 +26,7 @@ jobs:
       - name: Require the dedicated dev-bypass token
         shell: bash
         env:
-          LOCALIZATION_SYNC_TOKEN: \${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
+          LOCALIZATION_SYNC_TOKEN: ${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -z "$LOCALIZATION_SYNC_TOKEN" ]]; then
@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: dev
-          token: \${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
+          token: ${{ secrets.GDNG_LOCALIZATION_SYNC_TOKEN }}
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -62,7 +62,7 @@ jobs:
       - name: Audit GDevelop and GDNG Crowdin parity
         run: node .github/scripts/audit-crowdin-parity.mjs
         env:
-          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
       # Re-extract sources before the export so the English catalog contains
       # every source string present in the dev revision.
@@ -73,7 +73,7 @@ jobs:
       - name: Download translations through the GDNG Crowdin Export API
         run: node .github/scripts/download-crowdin-translations.mjs
         env:
-          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
       - name: Remove catalogs not handled properly by Lingui
         run: rm -rf newIDE/app/src/locales/pcm_NG/
@@ -100,7 +100,7 @@ jobs:
           locale_count=0
           for folder in "$translations_dir"/*; do
             [[ -d "$folder" ]] || continue
-            locale="\${folder##*/}"
+            locale="${folder##*/}"
             test -s "$folder/messages.js"
             mkdir -p "newIDE/app/src/locales/$locale"
             cp "$folder/messages.js" "newIDE/app/src/locales/$locale/extension-messages.js"

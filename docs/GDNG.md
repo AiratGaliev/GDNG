@@ -6,15 +6,15 @@ GDNG is an independently maintained fork of [GDevelop](https://github.com/4ian/G
 
 The normal contribution path is:
 
-\`topic branch → dev → test → main\`
+`topic branch → dev → test → main`
 
-Start work from \`dev\`. Use \`test\` for integrated candidate validation and \`main\` for accepted releases. The \`master\` branch is a historical upstream snapshot; do not use it for GDNG development.
+Start work from `dev`. Use `test` for integrated candidate validation and `main` for accepted releases. The `master` branch is a historical upstream snapshot; do not use it for GDNG development.
 
 See [Development workflow](development-workflow.md) for the contribution and validation rules.
 
 ## GDNG-specific behavior
 
-GDNG enables selected local editor features through \`newIDE/app/src/Utils/LocalFeaturePolicy.js\`. Preserve these behaviors when integrating upstream changes:
+GDNG enables selected local editor features through `newIDE/app/src/Utils/LocalFeaturePolicy.js`. Preserve these behaviors when integrating upstream changes:
 
 - Debugger access.
 - Live preview, Hot Reload and preview over Wi-Fi.
@@ -23,24 +23,24 @@ GDNG enables selected local editor features through \`newIDE/app/src/Utils/Local
 
 This policy affects local editor restrictions only. It does not grant cloud services, AI credits, publishing capacity or other server-side entitlements. Account permissions and API-provided limits remain controlled by GDevelop services.
 
-The policy has a focused test in \`newIDE/app/src/Utils/LocalFeaturePolicy.spec.js\`.
+The policy has a focused test in `newIDE/app/src/Utils/LocalFeaturePolicy.spec.js`.
 
 ## Localization
 
 GDNG uses the private Crowdin project as the translation editing workspace. Developers change source strings in code; translations are created and maintained in Crowdin rather than by editing locale files locally.
 
-Source catalogs are extracted from \`dev\` and uploaded to Crowdin automatically after relevant source changes. A daily localization workflow exports and validates Crowdin translations, compiles the editor catalogs, synchronizes upstream extension translation bundles, and commits the generated files directly to \`dev\`. It does not open localization pull requests. All localization commits then move through the regular \`dev → test → main\` promotion process.
+Source catalogs are extracted from `dev` and uploaded to Crowdin automatically after relevant source changes. A daily localization workflow exports and validates Crowdin translations, compiles the editor catalogs, synchronizes upstream extension translation bundles, and commits the generated files directly to `dev`. It does not open localization pull requests. All localization commits then move through the regular `dev → test → main` promotion process.
 
-The sync requires the repository secret \`GDNG_LOCALIZATION_SYNC_TOKEN\` and a matching bypass actor in the \`protect-dev\` ruleset. The token must be scoped to the GDNG repository with contents write access only. No bypass is granted on \`test\` or \`main\`.
+The sync requires the repository secret `GDNG_LOCALIZATION_SYNC_TOKEN` and a matching bypass actor in the `protect-dev` ruleset. The token must be scoped to the GDNG repository with contents write access only. No bypass is granted on `test` or `main`.
 
 ## Local checks
 
 Use Node.js 24 and npm. Follow the [editor setup instructions](../newIDE/README.md), then run these GDNG-specific checks from the repository root:
 
-\`\`\`sh
+```sh
 node scripts/verify-gdng-local-policy.cjs
 node scripts/verify-gdng-ci.cjs
-\`\`\`
+```
 
 Run the relevant tests for the code you change. CI runs the required checks for every pull request.
 
@@ -52,11 +52,11 @@ Do not resolve conflicts in CI configuration by accepting one side wholesale. Pr
 
 ## Manual release tag
 
-A manual tag is used only when deliberately publishing a selected GDNG release. Its format is \`gdng-v<version>\`, where \`<version>\` must exactly match the \`version\` field in \`newIDE/electron-app/app/package.json\`. Store the SemVer version in \`package.json\` without a leading \`v\`; prerelease identifiers such as \`-beta\` are part of the version. For example, package version \`5.6.288-beta\` requires the tag \`gdng-v5.6.288-beta\`. The release publisher marks versions with a SemVer prerelease suffix as GitHub Pre-releases.
+A manual tag is used only when deliberately publishing a selected GDNG release. Its format is `gdng-v<version>`, where `<version>` must exactly match the `version` field in `newIDE/electron-app/app/package.json`. Store the SemVer version in `package.json` without a leading `v`; prerelease identifiers such as `-beta` are part of the version. For example, package version `5.6.288-beta` requires the tag `gdng-v5.6.288-beta`. The release publisher marks versions with a SemVer prerelease suffix as GitHub Pre-releases.
 
-Create the tag on the accepted release commit in \`main\`, after the release workflow is available there:
+Create the tag on the accepted release commit in `main`, after the release workflow is available there:
 
-\`\`\`powershell
+```powershell
 git switch main
 git pull --ff-only origin main
 
@@ -64,7 +64,7 @@ $version = node -p "require('./newIDE/electron-app/app/package.json').version"
 $tag = "gdng-v$version"
 git tag $tag
 git push origin $tag
-\`\`\`
+```
 
 The tag starts the full release workflow. It publishes only after the required builds, tests and artifact checks succeed. For routine upstream updates, do not create a tag manually: merging the reviewed upstream-update PR starts the release workflow, which creates the matching GDNG tag after validation.
 

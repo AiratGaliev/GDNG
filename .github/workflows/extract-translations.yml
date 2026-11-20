@@ -57,7 +57,7 @@ jobs:
 
       - name: Verify Crowdin upload target
         env:
-          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
         run: node .github/scripts/audit-crowdin-parity.mjs --assert-upload-target
 
       - name: Install Crowdin CLI
@@ -66,4 +66,4 @@ jobs:
       - name: Upload source catalogs to GDNG Crowdin
         run: crowdin upload sources
         env:
-          CROWDIN_PERSONAL_TOKEN: \${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
