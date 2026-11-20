@@ -174,7 +174,7 @@ async function buildMergePlan(api, task) {
     );
   }
 
-  return { label, sourcePo, delta };
+  return { label, delta };
 }
 function logMergePlan(label, delta, mode) {
   console.log(
@@ -188,7 +188,7 @@ function logMergePlan(label, delta, mode) {
   );
 }
 async function importPair(api, task) {
-  const { label, sourcePo, delta } = await buildMergePlan(api, task);
+  const { label, delta } = await buildMergePlan(api, task);
   if (delta.deltaEntries === 0) {
     console.log('No Crowdin import required for ' + label + '.');
     return;
