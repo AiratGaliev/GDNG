@@ -140,7 +140,7 @@ async function buildMergePlan(api, task) {
   ]);
   const delta = buildMissingTranslationsPo(sourcePo, destinationPo);
 
-  logMergePlan(label, delta, 'Merge plan');
+  logMergePlan(label, delta, DRY_RUN ? 'DRY RUN' : 'Merge plan');
   if (delta.sourcePartiallyTranslated > 0) {
     throw new Error(
       'Source catalog contains ' + delta.sourcePartiallyTranslated +
@@ -168,7 +168,8 @@ function logMergePlan(label, delta, mode) {
   console.log(
     mode + ' ' + label + ': upstream translated=' + delta.sourceTranslated +
     ', already present=' + delta.alreadyTranslated +
-    ', partially translated plural entries=' + delta.partiallyTranslated +
+    ', partially translated source plurals=' + delta.sourcePartiallyTranslated +
+    ', partially translated destination plurals=' + delta.partiallyTranslated +
     ', unmatched source identities=' + delta.unmatched +
     ', source-equal=' + delta.sourceEqualsSource +
     ', missing translations=' + delta.deltaEntries + '.'
@@ -176,15 +177,6 @@ function logMergePlan(label, delta, mode) {
 }
 async function importPair(api, task) {
   const { label, sourcePo, delta } = await buildMergePlan(api, task);
-  logMergePlan(label, delta, 'Phrase merge');
-
-  if (delta.partiallyTranslated > 0) {
-    console.warn(
-      'Preserving ' + delta.partiallyTranslated +
-      ' partially translated plural entries in ' + label +
-      '; they need a separate form-level review and will not be overwritten.'
-    );
-  }
   if (delta.deltaEntries === 0) {
     console.log('No Crowdin import required for ' + label + '.');
     return;
@@ -293,8 +285,7 @@ async function main() {
 
   if (DRY_RUN) {
     const previewErrors = await mapConcurrent(tasks, CONCURRENCY, async task => {
-      const { label, delta } = await buildMergePlan(api, task);
-      logMergePlan(label, delta, 'DRY RUN');
+      const { delta } = await buildMergePlan(api, task);
       return delta;
     });
     if (previewErrors.length) {
@@ -311,9 +302,9 @@ async function main() {
       errors.map(item => item.item.languageId + '/' + item.item.catalog.output + ': ' + item.error).join('\n'));
   }
 
-  console.log('VERIFIED: all fully untranslated matched upstream entries are now present in GDNG.');
+  console.log('VERIFIED: every expected non-source-equal imported translation form is present verbatim in GDNG.');
   console.log('Unmatched source identities were not imported; imported translations remain unapproved.');
-  console.log('Existing translations and approvals were preserved. Partially translated plural entries were left untouched for separate review.');
+  console.log('Existing translations and approvals were preserved. Any partial plural catalog blocks completion instead of silently skipping forms.');
 }
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   main().catch(error => { console.error(error); process.exitCode = 1; });

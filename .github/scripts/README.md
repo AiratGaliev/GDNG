@@ -21,7 +21,7 @@ GDNG Crowdin is the source of truth for subsequent translation edits. Upstream r
 - `lib/po-catalog.mjs` — strict gettext PO parser and phrase-level delta builder. Identity is the exact tuple of context, singular source text and plural source text. Duplicate identities or malformed PO syntax fail closed.
 - `migrate-gdevelop-translations.mjs` — idempotent additive reconciler (source project `79367`, target project `948159`). It imports only missing translations for matching destination source entries and verifies each imported pair afterward.
 - `download-crowdin-translations.mjs` — exports complete PO catalogs from GDNG project `948159` to the repository locale tree; it rejects a wrong project ID and missing per-file progress before installing any files.
-- `tests/crowdin-api.test.mjs` and `tests/crowdin-isolation.test.mjs` — dependency-free Node.js tests for PO parsing, delta generation, bounded concurrency/retries, project isolation, locale aliases, phrase totals and approval metrics.
+- `tests/crowdin-api.test.mjs`, `tests/crowdin-isolation.test.mjs`, `tests/crowdin-migration.test.mjs` and `tests/crowdin-po-verification.test.mjs` — dependency-free Node.js tests for PO parsing/deltas, exact post-import form verification, progress completeness, dry-run defaults, bounded concurrency/retries, project isolation, locale aliases, phrase totals and approval metrics.
 
 ## Automatic one-time upstream seed
 
@@ -39,10 +39,10 @@ For each file/language pair, the importer:
 1. Exports translated upstream PO entries and the full GDNG PO catalog (including untranslated source entries).
 2. Matches source entries by gettext identity: `msgctxt` + `msgid` + `msgid_plural`. The projects have different Crowdin string IDs, so project-local numeric IDs are not used across projects.
 3. Skips any upstream entry that has no exact source identity in GDNG. It does not create or mutate GDNG source strings.
-4. Preserves every existing GDNG translation, including unapproved translations and approvals. Only destination entries with empty `msgstr` values enter the delta. Partially populated plural entries are reported separately and left untouched because a file-level re-import could affect their existing forms.
-5. Uploads the delta with `autoApproveImported=false`, waits for the asynchronous Import API operation, validates its report, then re-exports GDNG and verifies that no matched upstream translations remain missing.
+4. Preserves every existing GDNG translation, including unapproved translations and approvals. Only destination entries with empty `msgstr` values enter the delta. Any partially populated source or destination plural entry fails the pair closed; the workflow cannot write its completion tag until that case is explicitly reconciled.
+5. Uploads the delta with `autoApproveImported=false`, waits for the asynchronous Import API operation, validates its report, then re-exports GDNG and verifies every imported non-source-equal singular/plural form matches the expected upstream text verbatim.
 
-Source-equal translations are excluded because Crowdin skips them by default. Unmatched source identities are logged and not imported; they require source-catalog reconciliation rather than unsafe fuzzy matching. Duplicate PO identities, malformed catalogs, zero source-key overlap, failed imports and post-import gaps stop the workflow.
+Source-equal translations are excluded because Crowdin skips them by default. Unmatched source identities are logged and not imported; they require source-catalog reconciliation rather than unsafe fuzzy matching. Duplicate PO identities, malformed catalogs, missing/duplicate progress rows, invalid progress metrics, zero source-key overlap, partially translated plural entries, failed imports and post-import text mismatches stop the workflow. The importer defaults to a read-only dry-run; writes require the trusted workflow to pass `DRY_RUN=false` explicitly.
 
 Import concurrency defaults to four and is capped at six. Only explicit 429 rejections are retried for write operations to avoid duplicate operations after ambiguous failures.
 
