@@ -2,6 +2,9 @@ name: Seed GDNG Crowdin from upstream GDevelop
 
 on:
   workflow_call:
+    secrets:
+      CROWDIN_PERSONAL_TOKEN:
+        required: true
 
 permissions:
   contents: write
