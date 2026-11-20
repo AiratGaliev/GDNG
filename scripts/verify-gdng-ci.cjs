@@ -715,7 +715,7 @@ const committedLocalizationJobs = extractTopLevelSection(committedLocalizationWo
 const committedLocalizationJob = extractIndentedSection(committedLocalizationJobs, 'validate-localization-catalogs', 2);
 assert.match(committedLocalizationJob, /if: github\.ref == 'refs\/heads\/dev'/);
 assert.match(committedLocalizationJob, /LocalesMetadata\.js/);
-assert.match(committedLocalizationJob, /node --check/);
+assert.match(committedLocalizationJob, /\['--check', file\]/);
 assert.match(committedLocalizationJob, /extension-messages\.js/);
 assert.match(committedLocalizationWorkflow, /contents: read/);
 assert.doesNotMatch(committedLocalizationWorkflow, /contents: write|pull-requests: write/);
