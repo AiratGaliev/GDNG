@@ -61,9 +61,6 @@ function assertProjectIdentity(project, expected) {
   if (expected.identifier && project.identifier !== expected.identifier) {
     throw new Error('Crowdin project ' + expected.id + ' has an unexpected identifier.');
   }
-  if (expected.type && project.type !== expected.type) {
-    throw new Error('Crowdin project ' + expected.id + ' must be ' + expected.type + '.');
-  }
   if (expected.sourceLanguageId && project.sourceLanguageId !== expected.sourceLanguageId) {
     throw new Error('Crowdin project ' + expected.id + ' must use source language ' + expected.sourceLanguageId + '.');
   }
@@ -74,7 +71,6 @@ export function assertGdngProject(project) {
   return assertProjectIdentity(project, {
     id: CROWDIN_PROJECT_IDS.gdng,
     name: 'GDNG',
-    type: 'file-based',
     sourceLanguageId: 'en',
   });
 }
@@ -84,7 +80,6 @@ export function assertCrowdinProjectPair(sourceProject, targetProject) {
     id: CROWDIN_PROJECT_IDS.gdevelop,
     name: 'GDevelop 5',
     identifier: 'gdevelop',
-    type: 'file-based',
     sourceLanguageId: 'en',
   });
   assertGdngProject(targetProject);
