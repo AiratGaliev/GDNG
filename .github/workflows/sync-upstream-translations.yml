@@ -1,5 +1,9 @@
 name: Sync upstream GDevelop translations
 on:
+  # Every push to this implementation branch runs a read-only phrase-level preview.
+  push:
+    branches:
+      - ops/import-gdevelop-translations-once-20261119
   # Seed or resume the upstream import only when explicitly requested.
   workflow_dispatch:
     inputs:
@@ -32,5 +36,5 @@ jobs:
           TARGET_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
           CROWDIN_IMPORT_CONCURRENCY: "4"
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          DRY_RUN: ${{ github.event_name == 'push' && 'true' || github.event.inputs.dry_run || 'false' }}
         run: node .github/scripts/migrate-gdevelop-translations.mjs
