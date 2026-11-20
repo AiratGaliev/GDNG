@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { countPoEntries, createCrowdinApi, mapConcurrent, unwrapList } from './lib/crowdin-api.mjs';
+import { createCrowdinApi, mapConcurrent, unwrapList } from './lib/crowdin-api.mjs';
+import { parsePoCatalog } from './lib/po-catalog.mjs';
 import { CROWDIN_PROJECT_IDS, assertGdngProject, assertProjectId } from './lib/crowdin-projects.mjs';
 
 const PROJECT_ID = assertProjectId(process.env.CROWDIN_PROJECT_ID, CROWDIN_PROJECT_IDS.gdng, 'CROWDIN_PROJECT_ID');
@@ -34,12 +35,15 @@ async function exportPair(api, task, stagingRoot) {
   });
   if (!response?.data?.url) throw new Error('No export URL for ' + task.languageId + '/' + task.catalog.output + '.');
   const po = await api.downloadText(response.data.url);
-  if (!po.includes('msgid ""') || !po.includes('msgstr')) throw new Error('Invalid PO export for ' + task.languageId + '/' + task.catalog.output + '.');
+  const parsed = parsePoCatalog(po);
+  if (!parsed.header || !parsed.entries.length) {
+    throw new Error('Invalid or empty PO export for ' + task.languageId + '/' + task.catalog.output + '.');
+  }
   const expected = Number(task.progress?.phrases?.total);
   if (!Number.isSafeInteger(expected) || expected <= 0) {
     throw new Error('Missing or invalid Crowdin phrase total for ' + task.languageId + '/' + task.catalog.output + '.');
   }
-  const actual = countPoEntries(po);
+  const actual = parsed.entries.length;
   if (actual < expected) {
     throw new Error('Incomplete PO export for ' + task.languageId + '/' + task.catalog.output +
       ': ' + actual + ' entries; expected at least ' + expected + '.');

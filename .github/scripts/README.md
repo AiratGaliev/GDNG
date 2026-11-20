@@ -46,6 +46,12 @@ Source-equal translations are excluded because Crowdin skips them by default. Un
 
 Import concurrency defaults to four and is capped at six. Only explicit 429 rejections are retried for write operations to avoid duplicate operations after ambiguous failures.
 
+### Explicit migration boundaries
+
+The seed is a translation-data reconciliation, not a clone of the upstream Crowdin project. It transfers translated PO message forms only when the exact source identity already exists in GDNG. It does not create source strings, merge source catalog differences, copy original reviewers/approval records, or replicate project members, teams, webhooks, workflow configuration, parser settings or project-level policies. Upstream project APIs for members, webhooks, file-format settings and system placeholders return 403 for the current integration credentials, so those resources cannot be safely inventoried or mirrored. Upstream project configuration does not expose assigned glossary or translation-memory resources; the GDNG-owned glossary and TM are separate empty resources (0 terms and 0 segments). Imported translations deliberately remain unapproved because project-local approval records and reviewer identity cannot be safely recreated in GDNG. Existing GDNG translations and approvals are preserved.
+
+A missing or duplicate Crowdin progress row is a hard error, never interpreted as zero translated strings. The seed also fails closed on partially translated plural entries and verifies that each imported non-source-equal form matches the expected upstream text before it can create the completion tag. The importer defaults to dry-run unless `DRY_RUN=false` is explicitly supplied by the trusted main-branch workflow.
+
 ## Project isolation and credentials
 
 - `CROWDIN_PERSONAL_TOKEN` is required and must be stored in GitHub Actions Secrets.

@@ -1,11 +1,21 @@
+import { pathToFileURL } from 'node:url';
 import { createCrowdinApi, getImportReportStats, mapConcurrent, sleep, unwrapList } from './lib/crowdin-api.mjs';
-import { buildMissingTranslationsPo, parsePoCatalog } from './lib/po-catalog.mjs';
+import {
+  buildMissingTranslationsPo,
+  findMissingExpectedTranslationsPo,
+  parsePoCatalog,
+} from './lib/po-catalog.mjs';
 import { CROWDIN_PROJECT_IDS, assertCrowdinProjectPair, assertProjectId } from './lib/crowdin-projects.mjs';
 
 // Project IDs are pinned: the upstream GDevelop project is read-only, and GDNG is the only write target.
 const SOURCE_PROJECT_ID = assertProjectId(process.env.SOURCE_PROJECT_ID, CROWDIN_PROJECT_IDS.gdevelop, 'SOURCE_PROJECT_ID');
 const TARGET_PROJECT_ID = assertProjectId(process.env.TARGET_PROJECT_ID, CROWDIN_PROJECT_IDS.gdng, 'TARGET_PROJECT_ID');
-const DRY_RUN = process.env.DRY_RUN === 'true';
+export function resolveDryRun(value) {
+  if (value === undefined || value === '' || value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error('DRY_RUN must be explicitly set to either true or false.');
+}
+const DRY_RUN = resolveDryRun(process.env.DRY_RUN);
 const CONCURRENCY = Number(process.env.CROWDIN_IMPORT_CONCURRENCY || 4);
 const IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
 const CATALOGS = [
@@ -18,19 +28,71 @@ function findFile(files, name, project) {
   if (matches.length !== 1) throw new Error('Expected exactly one ' + name + ' file in ' + project.name + '; found ' + matches.length + '.');
   return matches[0];
 }
-function mapLanguages(source, target) {
+export function mapLanguages(source, target) {
   const sourceIds = new Set(source.targetLanguageIds || []);
   const sourceLanguages = source.targetLanguages || [];
+  const mappedSourceIds = new Set();
   return (target.targetLanguageIds || []).map(languageId => {
     const locale = target.languageMapping?.[languageId]?.locale_with_underscore;
     const sourceLanguageId = sourceIds.has(languageId)
       ? languageId
       : sourceLanguages.find(item => item.dialectOf === languageId)?.id;
-    if (!locale || !sourceLanguageId) throw new Error('No upstream language/locale mapping for ' + languageId + '.');
+    if (!locale || !sourceLanguageId) {
+      throw new Error('No upstream language/locale mapping for GDNG language ' + languageId + '.');
+    }
+    if (mappedSourceIds.has(sourceLanguageId)) {
+      throw new Error('Multiple GDNG languages map to upstream language ' + sourceLanguageId + '.');
+    }
+    mappedSourceIds.add(sourceLanguageId);
     return { languageId, sourceLanguageId, locale };
   });
 }
-const asProgressMap = rows => new Map(rows.map(row => [row.languageId, row]));
+
+/**
+ * Build seed tasks only when Crowdin returned a valid progress row for every
+ * mapped source language and catalog. Missing progress must never look like
+ * zero translations, or the one-time seed could be marked complete early.
+ */
+export function buildMigrationTasks(catalogs, languages, sourceProgressRows) {
+  if (!Array.isArray(sourceProgressRows) || sourceProgressRows.length !== catalogs.length) {
+    throw new Error('Crowdin source progress is incomplete for the configured catalogs.');
+  }
+
+  const tasks = [];
+  catalogs.forEach((catalog, index) => {
+    const rows = sourceProgressRows[index];
+    if (!Array.isArray(rows)) {
+      throw new Error('Crowdin source progress rows are missing for ' + catalog.name + '.');
+    }
+    const progressByLanguage = new Map();
+    for (const row of rows) {
+      if (!row?.languageId || progressByLanguage.has(row.languageId)) {
+        throw new Error('Crowdin returned a missing or duplicate language progress row for ' + catalog.name + '.');
+      }
+      progressByLanguage.set(row.languageId, row);
+    }
+
+    for (const language of languages) {
+      const progress = progressByLanguage.get(language.sourceLanguageId);
+      if (!progress) {
+        throw new Error(
+          'Crowdin source progress is missing for ' + language.sourceLanguageId +
+          '/' + catalog.name + '; refusing to skip an unverified language.'
+        );
+      }
+      const translated = Number(progress.phrases?.translated);
+      if (!Number.isSafeInteger(translated) || translated < 0) {
+        throw new Error(
+          'Crowdin returned an invalid translated phrase count for ' +
+          language.sourceLanguageId + '/' + catalog.name + '.'
+        );
+      }
+      if (translated > 0) tasks.push({ ...language, catalog });
+    }
+  });
+
+  return tasks;
+}
 async function fileProgress(api, projectId, fileId) {
   return unwrapList(await api.request('projects/' + projectId + '/files/' + fileId + '/languages/progress?limit=500'));
 }
@@ -78,6 +140,21 @@ async function buildMergePlan(api, task) {
   ]);
   const delta = buildMissingTranslationsPo(sourcePo, destinationPo);
 
+  logMergePlan(label, delta, 'Merge plan');
+  if (delta.sourcePartiallyTranslated > 0) {
+    throw new Error(
+      'Source catalog contains ' + delta.sourcePartiallyTranslated +
+      ' partially translated plural entries for ' + label +
+      '; refusing to mark the one-time seed complete with untranslated plural forms.'
+    );
+  }
+  if (delta.partiallyTranslated > 0) {
+    throw new Error(
+      'GDNG already contains ' + delta.partiallyTranslated +
+      ' partially translated plural entries for ' + label +
+      '; preserving existing forms and requiring explicit reconciliation.'
+    );
+  }
   if (delta.sourceTranslated > 0 && delta.matched === 0) {
     throw new Error(
       'No upstream source identities matched the GDNG catalog for ' + label +
@@ -159,17 +236,16 @@ async function importPair(api, task) {
     task.catalog.targetFile.id,
     false
   );
-  const verification = buildMissingTranslationsPo(sourcePo, destinationAfterImport);
-  if (verification.deltaEntries > 0) {
+  const missingExpected = findMissingExpectedTranslationsPo(delta.po, destinationAfterImport);
+  if (missingExpected.length > 0) {
     throw new Error(
       'Phrase merge verification failed for ' + label + ': ' +
-      verification.deltaEntries + ' fully untranslated matched entries are still missing after import.'
-    );
-  }
-  if (verification.partiallyTranslated > 0) {
-    console.warn(
-      'Post-import verification preserved ' + verification.partiallyTranslated +
-      ' partially translated plural entries in ' + label + '.'
+      missingExpected.length + ' expected translation form(s) are missing or differ after import. ' +
+      JSON.stringify(missingExpected.slice(0, 5).map(item => ({
+        key: item.key,
+        pluralIndex: item.pluralIndex,
+        actualPresent: item.actual !== undefined,
+      })))
     );
   }
 
@@ -207,15 +283,7 @@ async function main() {
   const sourceRows = await Promise.all(
     catalogs.map(catalog => fileProgress(api, SOURCE_PROJECT_ID, catalog.sourceFile.id))
   );
-  const tasks = [];
-
-  catalogs.forEach((catalog, index) => {
-    const source = asProgressMap(sourceRows[index]);
-    for (const language of languages) {
-      const upstreamCount = Number(source.get(language.sourceLanguageId)?.phrases?.translated || 0);
-      if (upstreamCount > 0) tasks.push({ ...language, catalog });
-    }
-  });
+  const tasks = buildMigrationTasks(catalogs, languages, sourceRows);
 
   console.log('Upstream project: ' + sourceProject.name + ' (' + SOURCE_PROJECT_ID + ').');
   console.log('Destination project: ' + targetProject.name + ' (' + TARGET_PROJECT_ID + ').');
@@ -247,4 +315,6 @@ async function main() {
   console.log('Unmatched source identities were not imported; imported translations remain unapproved.');
   console.log('Existing translations and approvals were preserved. Partially translated plural entries were left untouched for separate review.');
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch(error => { console.error(error); process.exitCode = 1; });
+}

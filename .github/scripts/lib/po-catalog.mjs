@@ -273,6 +273,47 @@ function hasMeaningfulTranslation(entry) {
   return false;
 }
 
+function hasPartiallyTranslatedSourcePlural(entry) {
+  if (entry.msgidPlural === undefined) return false;
+  const forms = [...entry.translations.values()];
+  return forms.some(Boolean) && forms.some(value => value.length === 0);
+}
+
+function sourceTextForTranslation(entry, pluralIndex) {
+  return pluralIndex === 0
+    ? entry.msgid
+    : (entry.msgidPlural ?? entry.msgid);
+}
+
+/**
+ * Return expected translated forms that are not present verbatim in the
+ * destination catalog. A non-empty destination value alone is not proof
+ * that the expected upstream translation was imported.
+ */
+export function findMissingExpectedTranslationsPo(expectedPo, destinationPo) {
+  const expected = parsePoCatalog(expectedPo);
+  const destination = parsePoCatalog(destinationPo);
+  const missing = [];
+
+  for (const entry of expected.entries) {
+    const destinationEntry = destination.index.get(entry.key);
+    for (const [pluralIndex, expectedText] of entry.translations) {
+      if (!expectedText || expectedText === sourceTextForTranslation(entry, pluralIndex)) continue;
+      const actualText = destinationEntry?.translations.get(pluralIndex);
+      if (actualText !== expectedText) {
+        missing.push({
+          key: entry.key,
+          pluralIndex,
+          expected: expectedText,
+          actual: actualText,
+        });
+      }
+    }
+  }
+
+  return missing;
+}
+
 function hasPartiallyTranslatedPlural(sourceEntry, destinationEntry) {
   if (sourceEntry.msgidPlural === undefined) return false;
 
@@ -309,10 +350,15 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
   let matched = 0;
   let alreadyTranslated = 0;
   let partiallyTranslated = 0;
+  let sourcePartiallyTranslated = 0;
   let unmatched = 0;
 
   for (const entry of source.entries) {
     if (!hasAnyTranslation(entry)) continue;
+    if (hasPartiallyTranslatedSourcePlural(entry)) {
+      sourcePartiallyTranslated += 1;
+      continue;
+    }
     if (!hasMeaningfulTranslation(entry)) {
       sourceEqualsSource += 1;
       continue;
@@ -355,6 +401,7 @@ export function buildMissingTranslationsPo(sourcePo, destinationPo) {
     matched,
     alreadyTranslated,
     partiallyTranslated,
+    sourcePartiallyTranslated,
     unmatched,
     deltaEntries: deltaEntries.length,
   };
