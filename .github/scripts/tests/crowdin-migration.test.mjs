@@ -35,7 +35,7 @@ function createImportApiFixture({ importedPo, reportPhrases = 1 }) {
     '',
     'msgid "Save"',
     'msgstr "Сохранить"',
-  ].join('\\n');
+  ].join('\n');
   const destinationBefore = [
     'msgid ""',
     'msgstr ""',
@@ -43,7 +43,7 @@ function createImportApiFixture({ importedPo, reportPhrases = 1 }) {
     '',
     'msgid "Save"',
     'msgstr ""',
-  ].join('\\n');
+  ].join('\n');
   const calls = [];
   let gdngExportCount = 0;
   let uploaded = null;
@@ -110,7 +110,7 @@ const importedDestinationPo = [
   '',
   'msgid "Save"',
   'msgstr "Сохранить"',
-].join('\\n');
+].join('\n');
 
 test('imports only into GDNG with approvals disabled and verifies the final text', async () => {
   const fixture = createImportApiFixture({ importedPo: importedDestinationPo });
