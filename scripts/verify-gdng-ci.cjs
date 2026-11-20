@@ -664,11 +664,61 @@ assert.doesNotMatch(fallbackTriggers, /push:/);
 const benchmarkWorkflow = read('.github/workflows/benchmarks.yml');
 assert.match(benchmarkWorkflow, /branches:[\s\S]*?- main/);
 const extractionWorkflow = read('.github/workflows/extract-translations.yml');
-assert.match(extractionWorkflow, /github\.ref == 'refs\/heads\/main'/);
+const extractionTriggers = extractTopLevelSection(extractionWorkflow, 'on');
+assert.match(extractionTriggers, /branches:[\s\S]*?- dev/);
+assert.match(extractionTriggers, /paths:[\s\S]*?- "newIDE\/app\/src\/\*\*"/);
+assert.ok(extractionTriggers.includes('- "!newIDE/app/src/locales/**"'));
+assert.match(extractionWorkflow, /if: github\.ref == 'refs\/heads\/dev'/);
+assert.match(extractionWorkflow, /contents: read/);
+assert.doesNotMatch(extractionWorkflow, /contents: write|pull-requests: write|create-pull-request/);
+const extractionAuditIndex = extractionWorkflow.indexOf('audit-crowdin-parity.mjs --assert-upload-target');
+const extractionUploadIndex = extractionWorkflow.indexOf('crowdin upload sources');
+assert.ok(extractionAuditIndex >= 0 && extractionUploadIndex > extractionAuditIndex,
+  'Crowdin source upload must be preceded by verification of the GDNG upload target.');
+
 const updateTranslationsWorkflow = read('.github/workflows/update-translations.yml');
-assert.match(updateTranslationsWorkflow, /branches:[\s\S]*?- main/);
-const extensionTranslationsWorkflow = read('.github/workflows/update-extension-translations.yml');
-assert.match(extensionTranslationsWorkflow, /branches:[\s\S]*?- main/);
+const localizationTriggers = extractTopLevelSection(updateTranslationsWorkflow, 'on');
+assert.match(localizationTriggers, /schedule:[\s\S]*?17 3 \* \* \*/);
+assert.match(localizationTriggers, /workflow_dispatch:/);
+assert.doesNotMatch(localizationTriggers, /push:/);
+const localizationJobs = extractTopLevelSection(updateTranslationsWorkflow, 'jobs');
+const localizationJob = extractIndentedSection(localizationJobs, 'sync-localization', 2);
+assert.match(localizationJob, /if: github\.ref == 'refs\/heads\/main'/);
+assert.match(localizationJob, /ref: dev/);
+assert.match(localizationJob, /persist-credentials: false/);
+assert.match(localizationJob, /node --test \.github\/scripts\/tests\/\*\.test\.mjs/);
+assert.match(localizationJob, /node \.github\/scripts\/audit-crowdin-parity\.mjs/);
+assert.match(localizationJob, /npm run compile-translations/);
+assert.match(localizationJob, /test -s newIDE\/app\/src\/locales\/en\/messages\.js/);
+assert.match(localizationJob, /git add -- newIDE\/app\/src\/locales\//);
+assert.match(localizationJob, /newIDE\/app\/src\/locales\/\*/);
+assert.doesNotMatch(localizationJob, /pull-requests: write|create-pull-request|git push .*--force/);
+const localizationCommitIndex = localizationJob.indexOf('git commit -m "chore(i18n): sync localization catalogs"');
+const localizationTokenIndex = localizationJob.indexOf('uses: actions/create-github-app-token@v3');
+const localizationPushIndex = localizationJob.indexOf('git push origin HEAD:refs/heads/dev');
+assert.ok(localizationCommitIndex >= 0 && localizationTokenIndex > localizationCommitIndex && localizationPushIndex > localizationTokenIndex,
+  'Create the scoped installation token only after validation and commit, before the protected dev push.');
+assert.ok(localizationJob.includes('GDNG_LOCALIZATION_APP_CLIENT_ID'));
+assert.ok(localizationJob.includes('GDNG_LOCALIZATION_APP_PRIVATE_KEY'));
+assert.match(localizationJob, /repositories: GDNG/);
+assert.match(localizationJob, /permission-contents: write/);
+assert.match(localizationJob, /git rebase origin\/dev[\s\S]*?git push origin HEAD:refs\/heads\/dev/);
+
+assert.equal(fs.existsSync(path.join(root, '.github/workflows/update-extension-translations.yml')), false,
+  'The superseded extension translation PR workflow must be removed.');
+
+const committedLocalizationWorkflow = read('.github/workflows/validate-localization-catalogs.yml');
+const committedLocalizationTriggers = extractTopLevelSection(committedLocalizationWorkflow, 'on');
+assert.match(committedLocalizationTriggers, /branches:[\s\S]*?- dev/);
+assert.match(committedLocalizationTriggers, /newIDE\/app\/src\/locales\/\*\*/);
+const committedLocalizationJobs = extractTopLevelSection(committedLocalizationWorkflow, 'jobs');
+const committedLocalizationJob = extractIndentedSection(committedLocalizationJobs, 'validate-localization-catalogs', 2);
+assert.match(committedLocalizationJob, /if: github\.ref == 'refs\/heads\/dev'/);
+assert.match(committedLocalizationJob, /LocalesMetadata\.js/);
+assert.match(committedLocalizationJob, /node --check/);
+assert.match(committedLocalizationJob, /extension-messages\.js/);
+assert.match(committedLocalizationWorkflow, /contents: read/);
+assert.doesNotMatch(committedLocalizationWorkflow, /contents: write|pull-requests: write/);
 
 const upstreamSync = read('.github/workflows/sync-upstream-release.yml');
 assert.match(upstreamSync, /branch="automation\/upstream-\$tag"/);
