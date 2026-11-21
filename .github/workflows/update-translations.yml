@@ -1,85 +1,157 @@
-# Download translations from Crowdin and open a Pull Request with compiled catalogs.
-name: Update translations
+# Synchronize compiled localization catalogs from Crowdin and upstream extensions.
+# Crowdin remains the source of truth; generated catalogs are committed directly to dev.
+name: Sync localization
 on:
-  push:
-    branches:
-      - main
-    tags-ignore:
-      - "**"
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
-permissions:
-  contents: write
-  pull-requests: write
-concurrency:
-  group: update-crowdin-translations
-  cancel-in-progress: false
-jobs:
-  ensure-crowdin-seed:
-    # The migration is only allowed from the production branch.
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/sync-upstream-translations.yml
-    permissions:
-      contents: write
-    secrets:
-      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
-  update-translations:
-    needs: ensure-crowdin-seed
-    # Manual dispatch from a non-main branch keeps the existing behavior; main must pass the seed first.
-    if: ${{ always() && (needs.ensure-crowdin-seed.result == 'success' || needs.ensure-crowdin-seed.result == 'skipped') }}
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+
+concurrency:
+  group: gdng-localization-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-localization:
+    # Scheduled runs execute from the default branch. Always use the reviewed
+    # workflow on main and synchronize the current dev integration branch.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       CROWDIN_PROJECT_ID: "948159"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Check out the current dev branch
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: 24.13.0
-          cache: "npm"
-          cache-dependency-path: "newIDE/app/package-lock.json"
+          cache: npm
+          cache-dependency-path: newIDE/app/package-lock.json
+
       - name: Install gettext
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gettext
-      - name: Install newIDE dependencies
-        run: npm ci
+
+      - name: Install IDE dependencies
         working-directory: newIDE/app
+        run: npm ci
+
       - name: Test Crowdin API helpers
         run: node --test .github/scripts/tests/*.test.mjs
-      # This audit uses GET requests only and reports upstream drift without changing GDevelop or GDNG.
-      - name: Audit GDevelop and GDNG Crowdin parity (read-only)
+
+      # This audit is read-only and confirms the export target is the GDNG project.
+      - name: Audit GDevelop and GDNG Crowdin parity
         run: node .github/scripts/audit-crowdin-parity.mjs
         env:
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-      # Extract source catalogs before exports, as required by the existing Lingui pipeline.
+
+      # Re-extract sources before the export so the English catalog contains
+      # every source string present in the dev revision.
       - name: Extract translations
-        run: npm run extract-all-translations
         working-directory: newIDE/app
-      # File-based exports avoid the project-build permission required by crowdin download.
-      - name: Download translations through Crowdin Export API
+        run: npm run extract-all-translations
+
+      - name: Download translations through the GDNG Crowdin Export API
         run: node .github/scripts/download-crowdin-translations.mjs
         env:
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
-      # Lingui does not correctly compile the three-letter Nigerian Pidgin locale.
+
       - name: Remove catalogs not handled properly by Lingui
         run: rm -rf newIDE/app/src/locales/pcm_NG/
-      - name: Compile translations
-        run: npm run compile-translations
+
+      - name: Compile and validate translations
         working-directory: newIDE/app
-      - name: Verify English catalog
-        run: test -f newIDE/app/src/locales/en/messages.js
-      - name: Create a Pull Request with the changes
-        uses: peter-evans/create-pull-request@v8.1.1
+        run: npm run compile-translations
+
+      - name: Verify the English catalog
+        run: test -s newIDE/app/src/locales/en/messages.js
+
+      # Extension translations are already maintained in the upstream
+      # GDevelop-extensions localization project. Mirror its compiled bundles;
+      # do not edit or translate these files in the GDNG repository.
+      - name: Synchronize upstream extension translation bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          extensions_repo="$RUNNER_TEMP/GDevelop-extensions"
+          git clone --depth 1 https://github.com/GDevelopApp/GDevelop-extensions.git "$extensions_repo"
+          translations_dir="$extensions_repo/.translations"
+          test -s "$translations_dir/LocalesMetadata.js"
+
+          # Remove only extension-generated artifacts before mirroring the upstream set.
+          find newIDE/app/src/locales -mindepth 2 -maxdepth 2 -type f -name 'extension-messages.js' -delete
+          rm -f newIDE/app/src/locales/ExtensionLocalesMetadata.js
+
+          locale_count=0
+          for folder in "$translations_dir"/*; do
+            [[ -d "$folder" ]] || continue
+            locale="${folder##*/}"
+            test -s "$folder/messages.js"
+            mkdir -p "newIDE/app/src/locales/$locale"
+            cp "$folder/messages.js" "newIDE/app/src/locales/$locale/extension-messages.js"
+            locale_count=$((locale_count + 1))
+          done
+
+          test "$locale_count" -gt 0
+          cp "$translations_dir/LocalesMetadata.js" newIDE/app/src/locales/ExtensionLocalesMetadata.js
+          echo "Synchronized extension catalogs for $locale_count locales."
+
+      - name: Commit only generated locale files to dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "GDNG Localization Sync"
+          git config user.email "gdng-localization-sync@users.noreply.github.com"
+
+          git add -- newIDE/app/src/locales/
+          if git diff --cached --quiet; then
+            echo "Localization catalogs are already up to date; no commit is needed."
+            exit 0
+          fi
+
+          while IFS= read -r path; do
+            case "$path" in
+              newIDE/app/src/locales/*) ;;
+              *)
+                echo "Refusing to commit an out-of-scope path: $path" >&2
+                exit 1
+                ;;
+            esac
+          done < <(git diff --cached --name-only)
+
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "chore(i18n): sync localization catalogs"
+
+      # Create the narrowly-scoped installation token only after all exports,
+      # validation and compilation have completed. It is short-lived and revoked
+      # automatically at the end of this job.
+      - name: Create repository-scoped localization GitHub App token
+        uses: actions/create-github-app-token@v3
+        id: localization-token
         with:
-          commit-message: Update translations
-          branch: chore/update-translations
-          delete-branch: true
-          add-paths: |
-            newIDE/app/src/locales/**
-          title: "[Auto PR] Update translations"
-          body: |
-            This updates the translations by exporting the latest PO catalogs from the GDNG Crowdin project through the Crowdin API and compiling them for usage by the app.
+          client-id: ${{ vars.GDNG_LOCALIZATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GDNG_LOCALIZATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: GDNG
+          permission-contents: write
 
-            Please double check the values in newIDE/app/src/locales/LocalesMetadata.js to ensure the changes are sensible.
-
-            Generated translation catalogs only are included. Dependency lockfiles and unrelated generated files are intentionally excluded.
-
-            The workflow validates extraction, Crowdin exports, PO completeness, ICU syntax, Lingui compilation, and the English catalog before opening this PR.
+      - name: Rebase and push generated catalogs to dev
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.localization-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          # Rebase on the latest dev head instead of force-pushing over concurrent work.
+          git fetch --no-tags origin dev
+          git rebase origin/dev
+          git push origin HEAD:refs/heads/dev

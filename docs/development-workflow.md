@@ -58,6 +58,17 @@ If validation or acceptance finds a defect, fix it on a new branch from the late
 
 A normal push to `main` validates the candidate; it does not publish a release. See [GDNG project notes](GDNG.md) for the manual release-tag format and the automated upstream-release path.
 
+## Localization
+
+Crowdin is the source of truth for GDNG editor translations. Do not edit translated PO files, compiled locale catalogs, or translation metadata manually in the repository.
+
+- Changes to translatable source code merged into `dev` trigger source extraction and upload to the GDNG Crowdin project. Topic branches do not upload strings.
+- The localization sync runs daily (and can be dispatched manually). It exports the GDNG Crowdin catalogs, validates and compiles them, mirrors the compiled extension catalogs from the upstream `GDevelop-extensions` repository, and commits only `newIDE/app/src/locales/**` directly to `dev`.
+- Localization synchronization does not create pull requests. The generated commit is promoted through the usual `dev → test → main` path.
+- The direct commit uses a dedicated GitHub App. Store its Client ID in the repository variable `GDNG_LOCALIZATION_APP_CLIENT_ID` and its private key in the repository secret `GDNG_LOCALIZATION_APP_PRIVATE_KEY`. Install the App on this repository only, grant it `Contents: read/write`, and add this App as an `Always allow` bypass actor in the `protect-dev` ruleset. Do not add a bypass to `protect-test` or `protect-main`.
+
+The bypass is required because `dev` enforces pull requests. It applies to the App identity at the ruleset level, not to a particular file path; therefore the workflow stages and commits only generated locale files, refuses any out-of-scope path, never force-pushes, and rebases against the latest `dev` before pushing. The workflow creates a short-lived installation token only after Crowdin export, PO/ICU validation, Lingui compilation and the English-catalog check have completed. The token is restricted to the GDNG repository and `Contents: write`. A separate lightweight push check validates the committed locale metadata and JavaScript catalog syntax; PO/ICU validation and full compilation already run before the commit because PO/POT files are intentionally gitignored.
+
 ## Upstream updates
 
 The upstream sync workflow opens a PR from `automation/upstream-<tag>` into `main` and starts a Windows candidate build for that branch. These PRs are not merged automatically. Review the diff, check that GDNG-specific behavior and release workflows are preserved, and wait for the PR checks and candidate build to succeed before merging.
@@ -66,7 +77,7 @@ Resolve conflicts deliberately. Do not accept either side of a conflict wholesal
 
 ## Branch and merge hygiene
 
-- Protected branches accept changes through PRs; do not force-push or bypass required checks.
+- Protected branches accept normal development changes through PRs. The dedicated localization GitHub App is the only automation exception on `dev`; it must not be configured as a bypass on `test` or `main`.
 - Keep the PR history reviewable. Squash is suitable for a single logical change; promotion PRs should preserve clear candidate movement.
 - Delete a topic branch after its PR is merged unless it is needed for active follow-up work.
 - Start unrelated work from a fresh branch based on the latest `dev`.
